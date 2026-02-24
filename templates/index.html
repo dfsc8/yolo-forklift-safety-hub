@@ -3,12 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>叉车作业人车互斥报警系统</title>
+    <title>叉车作业人车互斥报警系统 - Forklift Safety Hub</title>
+    <!-- 引入Socket.io -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"
+            integrity="sha384-Rt/HsX9s8lZSY4pYhEBLeL7KZPt6X6yzqKfEAnkEq+R1lvbAMq56zKhVjGRFVZl0"
+            crossorigin="anonymous"></script>
     <style>
-        body { font-family: 'Microsoft YaHei', sans-serif; margin: 20px; background-color: #f4f7f6; }
-        .container { max-width: 1100px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h2 { color: #333; border-bottom: 2px solid #d9534f; padding-bottom: 10px; text-align: center; }
+        /* 基础样式整合 */
+        body { font-family: 'Microsoft YaHei', Arial, sans-serif; margin: 20px; background-color: #f4f7f6; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         
+        /* 头部样式 */
+        h1 { color: #333; margin-bottom: 10px; text-align: center; }
+        h2 { color: #333; border-bottom: 2px solid #d9534f; padding-bottom: 10px; margin-top: 30px; }
+        .header-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        #ws-status { font-size: 0.8em; padding: 4px 8px; border-radius: 4px; }
+        .ws-connected { background: #d4edda; color: #155724; }
+        .ws-disconnected { background: #f8d7da; color: #721c24; }
+
         /* 顶部统计栏样式 */
         .stats-bar {
             display: flex;
@@ -25,7 +37,8 @@
         .stat-alarm { color: #ff4d4d; }
         .stat-online { color: #44ff44; }
 
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        /* 表格样式整合 */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
         th { background-color: #333; color: white; }
         .status-online { color: green; font-weight: bold; }
@@ -33,63 +46,279 @@
         .alarm-active { background-color: #ffebeb; color: #d9534f; font-weight: bold; }
         .alarm-normal { color: #5cb85c; }
         .update-time { font-size: 0.85em; color: #666; }
-        .header-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        #ws-status { font-size: 0.8em; padding: 4px 8px; border-radius: 4px; }
-        .ws-connected { background: #d4edda; color: #155724; }
-        .ws-disconnected { background: #f8d7da; color: #721c24; }
+        
+        /* 日志表格特殊样式 */
+        #log-table th { background: #eee; color: #333; border: 1px solid #ccc; }
+        #log-table td { border: 1px solid #ccc; padding: 8px; }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- 头部信息 -->
         <div class="header-info">
-            <div id="ws-status" class="ws-disconnected">WebSocket: 未连接</div>
-            <div style="font-weight: bold; color: #666;">实时监控中心</div>
+            <div id="ws-status" class="ws-disconnected">Socket.io: 未连接</div>
+            <div style="font-weight: bold; color: #666;">实时监控中心 / Real-time Monitoring Center</div>
         </div>
 
-        <h2>叉车作业人车互斥报警系统</h2>
+        <h1>叉车作业人车互斥报警系统 - Forklift Safety Hub</h1>
 
         <!-- 顶部统计栏 -->
         <div class="stats-bar">
             <div class="stat-item">
                 <span id="stat-total" class="stat-value">0</span>
-                <span class="stat-label">设备总数</span>
+                <span class="stat-label">设备总数 / Total Devices</span>
             </div>
             <div class="stat-item">
                 <span id="stat-online" class="stat-value stat-online">0</span>
-                <span class="stat-label">在线设备</span>
+                <span class="stat-label">在线设备 / Online Devices</span>
             </div>
             <div class="stat-item">
                 <span id="stat-alarm" class="stat-value stat-alarm">0</span>
-                <span class="stat-label">当前报警</span>
+                <span class="stat-label">当前报警 / Active Alarms</span>
             </div>
         </div>
         
+        <!-- 设备状态表格 -->
+        <h2>设备状态 / Device Status</h2>
         <table id="device-table">
             <thead>
                 <tr>
-                    <th>设备ID</th>
-                    <th>报警状态</th>
-                    <th>错误计数</th>
-                    <th>系统运行时间</th>
-                    <th>更新时间</th>
+                    <th>设备ID / Device ID</th>
+                    <th>在线状态 / Online Status</th>
+                    <th>报警状态 / Alarm Status</th>
+                    <th>错误计数 / Error Count</th>
+                    <th>系统运行时间 / Runtime</th>
+                    <th>最后更新 / Last Update</th>
                 </tr>
             </thead>
             <tbody>
-                <!-- 数据由 JS 动态填充 -->
+                <!-- 数据由JS动态填充 -->
             </tbody>
         </table>
 
+        <!-- 日志表格 -->
+        <h2>业务日志 / Biz Logs (Last 100)</h2>
+        <table id="log-table">
+            <thead>
+                <tr>
+                    <th>时间 / Time</th>
+                    <th>级别 / Level</th>
+                    <th>事件 / Event</th>
+                    <th>设备 / Device</th>
+                    <th>消息 / Message</th>
+                    <th>附加信息 / Extra</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+
+        <!-- 功能说明 -->
         <div style="margin-top: 30px; padding: 15px; background: #f9f9f9; border-radius: 5px;">
-            <h3>功能说明：</h3>
+            <h3>功能说明 / Function Description：</h3>
             <ul>
-                <li><strong>错误计数：</strong> 仅在设备发生从“正常”变为“报警”的瞬间增加。</li>
-                <li><strong>运行时间：</strong> 由前端根据服务器下发的启动时间戳每秒动态计算，显示为 HH:MM:SS。</li>
-                <li><strong>离线检测：</strong> 10 秒无数据自动判定，离线后停止运行时间计算。</li>
+                <li><strong>错误计数：</strong> 仅在设备发生从“正常”变为“报警”的瞬间增加。/ Error count increases only when device status changes from normal to alarm.</li>
+                <li><strong>运行时间：</strong> 由前端根据服务器下发的启动时间戳每秒动态计算，显示为 HH:MM:SS。/ Runtime is calculated dynamically every second based on start timestamp from server (HH:MM:SS).</li>
+                <li><strong>离线检测：</strong> 10 秒无数据自动判定，离线后停止运行时间计算。/ Offline is judged after 10s no data, runtime calculation stops when offline.</li>
             </ul>
         </div>
     </div>
 
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script src="/static/main.js"></script>
+    <script>
+        // 全局变量
+        let deviceData = {}; // 设备缓存 {deviceId: {online_status, alarm_status, error_count, startTime, last_seen, timer}}
+        const OFFLINE_THRESHOLD = 10 * 1000; // 10秒离线阈值
+        const socket = io(); // 初始化Socket.io
+
+        // 页面初始化
+        window.onload = function() {
+            initSocketIO(); // 初始化Socket.io连接
+            fetchInitialData(); // 获取初始数据（API）
+            setInterval(updateDeviceStatus, 1000); // 每秒更新设备状态
+        };
+
+        // 初始化Socket.io
+        function initSocketIO() {
+            // 连接成功
+            socket.on("connect", () => {
+                document.getElementById('ws-status').className = 'ws-connected';
+                document.getElementById('ws-status').textContent = 'Socket.io: 已连接';
+                console.log("Socket.io connected");
+            });
+
+            // 连接断开
+            socket.on("disconnect", () => {
+                document.getElementById('ws-status').className = 'ws-disconnected';
+                document.getElementById('ws-status').textContent = 'Socket.io: 已断开';
+                console.log("Socket.io disconnected");
+            });
+
+            // 接收设备更新
+            socket.on("device_update", (data) => {
+                if (data.devices && Array.isArray(data.devices)) {
+                    data.devices.forEach(device => {
+                        updateDeviceCache(device); // 更新设备缓存
+                    });
+                    renderDevices(Object.values(deviceData)); // 渲染设备表格
+                    updateStats(); // 更新统计数据
+                    // 自动刷新日志
+                    fetch("/api/biz_logs").then(r => r.json()).then(renderLogs);
+                }
+            });
+
+            // 错误处理
+            socket.on("connect_error", (err) => {
+                console.error("Socket.io connection error:", err);
+            });
+        }
+
+        // 获取初始数据
+        async function fetchInitialData() {
+            try {
+                // 获取设备初始状态
+                const devRes = await fetch("/api/latest");
+                const devData = await devRes.json();
+                if (devData.devices && Array.isArray(devData.devices)) {
+                    devData.devices.forEach(device => {
+                        updateDeviceCache(device);
+                    });
+                    renderDevices(Object.values(deviceData));
+                    updateStats();
+                }
+
+                // 获取日志初始数据
+                const logRes = await fetch("/api/biz_logs");
+                const logData = await logRes.json();
+                renderLogs(logData);
+            } catch (e) {
+                console.error("获取初始数据失败:", e);
+            }
+        }
+
+        // 更新设备缓存
+        function updateDeviceCache(device) {
+            const deviceId = device.device_id;
+            if (!deviceId) return;
+
+            // 初始化设备数据
+            if (!deviceData[deviceId]) {
+                deviceData[deviceId] = {
+                    device_id: deviceId,
+                    online_status: device.online_status || false,
+                    alarm_status: device.alarm_status || false,
+                    error_count: device.error_count || 0,
+                    startTime: device.startTime || Date.now(), // 启动时间戳
+                    last_seen: device.last_seen || new Date().toLocaleString(), // 最后更新时间
+                    prev_alarm_status: device.alarm_status || false // 上一次报警状态（用于错误计数）
+                };
+            }
+
+            const cachedDevice = deviceData[deviceId];
+            // 更新基础状态
+            cachedDevice.online_status = device.online_status || cachedDevice.online_status;
+            cachedDevice.alarm_status = device.alarm_status || cachedDevice.alarm_status;
+            cachedDevice.last_seen = device.last_seen || new Date().toLocaleString();
+            
+            // 报警状态变化：正常→报警 错误计数+1
+            if (cachedDevice.alarm_status && !cachedDevice.prev_alarm_status) {
+                cachedDevice.error_count += 1;
+            }
+            cachedDevice.prev_alarm_status = cachedDevice.alarm_status;
+
+            // 更新启动时间（如果有新值）
+            if (device.startTime) cachedDevice.startTime = device.startTime;
+        }
+
+        // 每秒更新设备状态（离线检测、运行时间计算）
+        function updateDeviceStatus() {
+            const now = Date.now();
+            Object.keys(deviceData).forEach(deviceId => {
+                const device = deviceData[deviceId];
+                // 离线检测：最后更新时间超过阈值则标记为离线
+                if (new Date(device.last_seen).getTime() < now - OFFLINE_THRESHOLD) {
+                    device.online_status = false;
+                }
+            });
+            renderDevices(Object.values(deviceData));
+            updateStats();
+        }
+
+        // 渲染设备表格
+        function renderDevices(devices) {
+            const tbody = document.querySelector("#device-table tbody");
+            tbody.innerHTML = "";
+
+            devices.forEach(d => {
+                const tr = document.createElement("tr");
+                // 计算运行时间（仅在线时显示）
+                const runtime = d.online_status ? formatTime(Date.now() - d.startTime) : "——";
+                
+                tr.innerHTML = `
+                    <td>${d.device_id}</td>
+                    <td class="${d.online_status ? 'status-online':'status-offline'}">
+                        ${d.online_status ? '在线 / Online':'离线 / Offline'}
+                    </td>
+                    <td class="${d.alarm_status ? 'alarm-active':'alarm-normal'}">
+                        ${d.alarm_status ? '报警 / ALARM':'正常 / Normal'}
+                    </td>
+                    <td>${d.error_count}</td>
+                    <td>${runtime}</td>
+                    <td class="update-time">${d.last_seen}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 渲染日志表格
+        function renderLogs(logs) {
+            const tbody = document.querySelector("#log-table tbody");
+            tbody.innerHTML = "";
+
+            if (!Array.isArray(logs)) return;
+            // 只显示最后100条
+            const latestLogs = logs.slice(-100);
+            latestLogs.forEach(l => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${l.ts || '-'}</td>
+                    <td>${l.level || '-'}</td>
+                    <td>${l.event || '-'}</td>
+                    <td>${l.device_id || '-'}</td>
+                    <td>${l.message || '-'}</td>
+                    <td>${l.extra ? JSON.stringify(l.extra) : '-'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 更新顶部统计数据
+        function updateStats() {
+            const total = Object.keys(deviceData).length;
+            let online = 0;
+            let alarm = 0;
+
+            Object.values(deviceData).forEach(device => {
+                if (device.online_status) online += 1;
+                if (device.online_status && device.alarm_status) alarm += 1;
+            });
+
+            document.getElementById('stat-total').textContent = total;
+            document.getElementById('stat-online').textContent = online;
+            document.getElementById('stat-alarm').textContent = alarm;
+        }
+
+        // 格式化时间戳为 HH:MM:SS
+        function formatTime(ms) {
+            const totalSeconds = Math.floor(ms / 1000);
+            const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+            const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+            const seconds = String(totalSeconds % 60).padStart(2, '0');
+            return `${hours}:${minutes}:${seconds}`;
+        }
+
+        // 页面关闭时断开连接
+        window.onbeforeunload = function() {
+            socket.disconnect();
+        };
+    </script>
 </body>
 </html>
