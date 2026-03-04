@@ -147,13 +147,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const bootDate = new Date(bootTimeStr.replace(/-/g, '/'));
         const now = new Date();
         const diffSec = Math.floor((now - bootDate) / 1000);
-        
         if (diffSec < 0) return '00:00:00';
-
         const h = Math.floor(diffSec / 3600).toString().padStart(2, '0');
         const m = Math.floor((diffSec % 3600) / 60).toString().padStart(2, '0');
         const s = (diffSec % 60).toString().padStart(2, '0');
-
         return `${h}:${m}:${s}`;
     }
 
