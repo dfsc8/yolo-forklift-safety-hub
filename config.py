@@ -2,14 +2,12 @@
 
 import os
 
-
 def _get_bool(name, default=False):
     """从环境变量读取布尔值，保留该工具函数供后续可能的开关配置复用。"""
     value = os.getenv(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
-
 
 # ==============================
 # MQTT 连接配置

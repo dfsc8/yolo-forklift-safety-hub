@@ -3,6 +3,7 @@ SQLite 数据访问与表初始化 - 增加趋势统计功能
 """
 
 import sqlite3
+import json
 from datetime import datetime
 
 from config import DB_PATH, HISTORY_LIMIT, TREND_LIMIT, DB_BUSY_TIMEOUT_MS
@@ -45,16 +46,32 @@ def init_db():
             update_time TEXT
         )
     """)
+
+    # 业务日志表 (由 V1 引入)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS biz_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT,
+            level TEXT,
+            event TEXT,
+            device_id TEXT,
+            message TEXT,
+            extra TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
 
 def update_device_data(device_id, alarm):
     """
-    更新设备数据并插入历史记录
+    更新设备数据并插入历史记录。
+    返回变更状态字典，供日志使用。
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    changed = {}
     
     # 1. 插入历史明细表
     cursor.execute("""
@@ -74,9 +91,14 @@ def update_device_data(device_id, alarm):
         
         if old_online == 0:
             boot_time = now_str
+            changed['online_marked'] = True
             
         if old_alarm == 0 and alarm == 1:
             error_count += 1
+            changed['alarm_raised'] = True
+
+        if old_alarm == 1 and alarm == 0:
+            changed['alarm_cleared'] = True
             
         cursor.execute("""
             UPDATE devices SET
@@ -93,9 +115,13 @@ def update_device_data(device_id, alarm):
             INSERT INTO devices (device_id, alarm_status, error_count, boot_time, last_seen, online_status, update_time)
             VALUES (?, ?, ?, ?, ?, 1, ?)
         """, (device_id, alarm, (1 if alarm == 1 else 0), now_str, now_str, now_str))
+        changed['online_marked'] = True
+        if alarm == 1:
+            changed['alarm_raised'] = True
         
     conn.commit()
     conn.close()
+    return changed
 
 def set_device_offline(device_id):
     """标记设备为离线"""

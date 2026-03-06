@@ -1,156 +1,313 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>叉车作业人车互斥报警系统</title>
+    <!-- 引入Socket.io -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: 'Microsoft YaHei', sans-serif; margin: 20px; background-color: #f4f7f6; }
-        .container { max-width: 1100px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h2 { color: #333; border-bottom: 2px solid #d9534f; padding-bottom: 10px; text-align: center; }
-        
-        .stats-bar {
-            display: flex;
-            justify-content: space-around;
-            background: #333;
-            color: white;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-        }
-        .stat-item { text-align: center; }
-        .stat-value { font-size: 24px; font-weight: bold; display: block; }
-        .stat-label { font-size: 14px; opacity: 0.8; }
-        .stat-alarm { color: #ff4d4d; }
-        .stat-online { color: #44ff44; }
+      body {
+        font-family: "Microsoft YaHei", sans-serif;
+        margin: 20px;
+        background-color: #f4f7f6;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1,
+      h2 {
+        color: #333;
+        text-align: center;
+      }
+      h2 {
+        border-bottom: 2px solid #d9534f;
+        padding-bottom: 10px;
+        margin-top: 30px;
+      }
 
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background-color: #333; color: white; }
-        tbody tr { cursor: pointer; transition: background 0.2s; }
-        tbody tr:hover { background-color: #f1f1f1; }
-        
-        .status-online { color: green; font-weight: bold; }
-        .status-offline { color: red; font-weight: bold; }
-        .alarm-active { background-color: #ffebeb; color: #d9534f; font-weight: bold; }
-        .alarm-normal { color: #5cb85c; }
-        .update-time { font-size: 0.85em; color: #666; }
-        
-        .header-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        #ws-status { font-size: 0.8em; padding: 4px 8px; border-radius: 4px; }
-        .ws-connected { background: #d4edda; color: #155724; }
-        .ws-disconnected { background: #f8d7da; color: #721c24; }
+      .header-info {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      #ws-status {
+        font-size: 0.8em;
+        padding: 4px 8px;
+        border-radius: 4px;
+      }
+      .ws-connected {
+        background: #d4edda;
+        color: #155724;
+      }
+      .ws-disconnected {
+        background: #f8d7da;
+        color: #721c24;
+      }
 
-        /* Modal 弹窗样式 */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0; top: 0;
-            width: 100%; height: 100%;
-            background-color: rgba(0,0,0,0.5);
-        }
-        .modal-content {
-            background-color: #fefefe;
-            margin: 5% auto;
-            padding: 20px;
-            border-radius: 8px;
-            width: 80%;
-            max-width: 800px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-            position: relative;
-        }
-        .close {
-            color: #aaa;
-            float: right;
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-        .close:hover { color: black; }
-        .modal-header { border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
-        .modal-body { display: flex; flex-direction: column; gap: 20px; }
-        .chart-container { height: 300px; width: 100%; }
-        .history-list { max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 10px; border-radius: 4px; }
-        .history-item { font-size: 0.9em; padding: 5px 0; border-bottom: 1px dotted #eee; display: flex; justify-content: space-between; }
+      .stats-bar {
+        display: flex;
+        justify-content: space-around;
+        background: #333;
+        color: white;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+      }
+      .stat-item {
+        text-align: center;
+      }
+      .stat-value {
+        font-size: 24px;
+        font-weight: bold;
+        display: block;
+      }
+      .stat-label {
+        font-size: 14px;
+        opacity: 0.8;
+      }
+      .stat-alarm {
+        color: #ff4d4d;
+      }
+      .stat-online {
+        color: #44ff44;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+      th,
+      td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+      }
+      th {
+        background-color: #333;
+        color: white;
+      }
+      #device-table tbody tr {
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      #device-table tbody tr:hover {
+        background-color: #f1f1f1;
+      }
+
+      .status-online {
+        color: green;
+        font-weight: bold;
+      }
+      .status-offline {
+        color: red;
+        font-weight: bold;
+      }
+      .alarm-active {
+        background-color: #ffebeb;
+        color: #d9534f;
+        font-weight: bold;
+      }
+      .alarm-normal {
+        color: #5cb85c;
+      }
+      .update-time {
+        font-size: 0.85em;
+        color: #666;
+      }
+
+      /* 日志表格特殊样式 (V1) */
+      #log-table th {
+        background: #eee;
+        color: #333;
+        border: 1px solid #ccc;
+      }
+      #log-table td {
+        border: 1px solid #ccc;
+        padding: 8px;
+        font-size: 0.9em;
+      }
+
+      /* Modal 弹窗样式 */
+      .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+      }
+      .modal-content {
+        background-color: #fefefe;
+        margin: 5% auto;
+        padding: 20px;
+        border-radius: 8px;
+        width: 80%;
+        max-width: 800px;
+        position: relative;
+      }
+      .close {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      .close:hover {
+        color: black;
+      }
+      .modal-header {
+        border-bottom: 1px solid #eee;
+        padding-bottom: 10px;
+        margin-bottom: 15px;
+      }
+      .modal-body {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .chart-container {
+        height: 300px;
+        width: 100%;
+      }
+      .history-list {
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid #eee;
+        padding: 10px;
+        border-radius: 4px;
+      }
+      .history-item {
+        font-size: 0.9em;
+        padding: 5px 0;
+        border-bottom: 1px dotted #eee;
+        display: flex;
+        justify-content: space-between;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="container">
-        <div class="header-info">
-            <div id="ws-status" class="ws-disconnected">WebSocket: 未连接</div>
-            <div style="font-weight: bold; color: #666;">实时监控中心</div>
+      <div class="header-info">
+        <div id="ws-status" class="ws-disconnected">Socket.io: 未连接</div>
+        <div style="font-weight: bold; color: #666">
+          实时监控中心 / Real-time Monitoring Center
         </div>
+      </div>
 
-        <h2>叉车作业人车互斥报警系统</h2>
+      <h1>叉车作业人车互斥报警系统</h1>
 
-        <div class="stats-bar">
-            <div class="stat-item">
-                <span id="stat-total" class="stat-value">0</span>
-                <span class="stat-label">设备总数</span>
-            </div>
-            <div class="stat-item">
-                <span id="stat-online" class="stat-value stat-online">0</span>
-                <span class="stat-label">在线设备</span>
-            </div>
-            <div class="stat-item">
-                <span id="stat-alarm" class="stat-value stat-alarm">0</span>
-                <span class="stat-label">当前报警</span>
-            </div>
+      <!-- 顶部统计栏 -->
+      <div class="stats-bar">
+        <div class="stat-item">
+          <span id="stat-total" class="stat-value">0</span>
+          <span class="stat-label">设备总数</span>
         </div>
-        
-        <table id="device-table">
-            <thead>
-                <tr>
-                    <th>设备ID</th>
-                    <th>报警状态</th>
-                    <th>错误计数</th>
-                    <th>系统运行时间</th>
-                    <th>更新时间</th>
-                </tr>
-            </thead>
-            <tbody>
-                <!-- 数据由 JS 动态填充 -->
-            </tbody>
-        </table>
-
-        <div style="margin-top: 30px; padding: 15px; background: #f9f9f9; border-radius: 5px;">
-            <h3>功能说明：</h3>
-            <ul>
-                <li><strong>交互提示：</strong> 点击表格中的设备行可查看详细历史轨迹。</li>
-                <li><strong>历史视图：</strong> 弹窗展示最近 20 条上报记录及状态变化折线图。</li>
-            </ul>
+        <div class="stat-item">
+          <span id="stat-online" class="stat-value stat-online">0</span>
+          <span class="stat-label">在线设备</span>
         </div>
+        <div class="stat-item">
+          <span id="stat-alarm" class="stat-value stat-alarm">0</span>
+          <span class="stat-label">当前报警</span>
+        </div>
+      </div>
+
+      <h2>设备状态</h2>
+      <table id="device-table">
+        <thead>
+          <tr>
+            <th>设备ID</th>
+            <th>在线状态</th>
+            <th>报警状态</th>
+            <th>错误计数</th>
+            <th>系统运行时间</th>
+            <th>最后更新</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- 数据由JS动态填充 -->
+        </tbody>
+      </table>
+
+      <!-- 日志表格  -->
+      <h2>业务日志 (最近 100 条)</h2>
+      <table id="log-table">
+        <thead>
+          <tr>
+            <th>时间</th>
+            <th>级别</th>
+            <th>事件</th>
+            <th>设备</th>
+            <th>消息</th>
+            <th>附加信息</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <!-- 功能说明 -->
+      <div
+        style="
+          margin-top: 30px;
+          padding: 15px;
+          background: #f9f9f9;
+          border-radius: 5px;
+        "
+      >
+        <h3>功能说明：</h3>
+        <ul>
+          <li>
+            <strong>交互提示：</strong>
+            点击表格中的设备行可查看详细历史轨迹与统计图表。
+          </li>
+          <li>
+            <strong>运行时间：</strong> 由前端动态计算展示，离线后将停止计时。
+          </li>
+          <li>
+            <strong>系统日志：</strong>
+            统一展示后端各类系统报警与状态变更事件，供运维人员核查。
+          </li>
+        </ul>
+      </div>
     </div>
 
     <!-- 设备详情弹窗 -->
     <div id="deviceModal" class="modal">
-        <div class="modal-content">
-            <span class="close">&times;</span>
-            <div class="modal-header">
-                <h3 id="modalDeviceTitle">设备详情</h3>
-            </div>
-            <div class="modal-body">
-                <div id="modalDeviceInfo">
-                    <!-- 基本信息渲染 -->
-                </div>
-                <div class="chart-container">
-                    <canvas id="historyChart"></canvas>
-                </div>
-                <h4>最近 20 条记录</h4>
-                <div id="modalHistoryList" class="history-list">
-                    <!-- 历史列表渲染 -->
-                </div>
-            </div>
+      <div class="modal-content">
+        <span class="close">&times;</span>
+        <div class="modal-header">
+          <h3 id="modalDeviceTitle">设备详情</h3>
         </div>
+        <div class="modal-body">
+          <div id="modalDeviceInfo"></div>
+          <div class="chart-container">
+            <canvas id="historyChart"></canvas>
+          </div>
+          <h4>最近记录</h4>
+          <div id="modalHistoryList" class="history-list"></div>
+        </div>
+      </div>
     </div>
 
-    <!-- 脚本引入 -->
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- 使用 application/json 类型的 script 标签存放数据，避免 IDE 报 JS 语法错误 -->
+    <script id="auth-token-data" type="application/json">
+      {{ app_auth_token|tojson }}
+    </script>
     <script>
-        window.APP_AUTH_TOKEN = {{ app_auth_token|tojson }};
+      // 设置 Auth Token (通过 Jinja 模板引擎注入)
+      window.APP_AUTH_TOKEN = JSON.parse(document.getElementById('auth-token-data').textContent);
     </script>
     <script src="/static/main.js"></script>
-</body>
+  </body>
 </html>
