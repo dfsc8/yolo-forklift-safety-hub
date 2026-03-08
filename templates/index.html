@@ -124,18 +124,6 @@
         color: #666;
       }
 
-      /* 日志表格特殊样式 (V1) */
-      #log-table th {
-        background: #eee;
-        color: #333;
-        border: 1px solid #ccc;
-      }
-      #log-table td {
-        border: 1px solid #ccc;
-        padding: 8px;
-        font-size: 0.9em;
-      }
-
       /* Modal 弹窗样式 */
       .modal {
         display: none;
@@ -194,6 +182,22 @@
         display: flex;
         justify-content: space-between;
       }
+
+      /* 新增导航按钮样式 */
+      .nav-bar {
+        text-align: right;
+        margin-bottom: 10px;
+      }
+      .nav-btn {
+        padding: 6px 12px;
+        background: #d9534f;
+        color: white;
+        text-decoration: none;
+        border-radius: 4px;
+      }
+      .nav-btn:hover {
+        background: #c9302c;
+      }
     </style>
   </head>
   <body>
@@ -203,6 +207,11 @@
         <div style="font-weight: bold; color: #666">
           实时监控中心 / Real-time Monitoring Center
         </div>
+      </div>
+
+      <!-- 新增导航栏 -->
+      <div class="nav-bar">
+        <a href="/logs" class="nav-btn">查看业务日志</a>
       </div>
 
       <h1>叉车作业人车互斥报警系统</h1>
@@ -240,22 +249,6 @@
         </tbody>
       </table>
 
-      <!-- 日志表格  -->
-      <h2>业务日志 (最近 100 条)</h2>
-      <table id="log-table">
-        <thead>
-          <tr>
-            <th>时间</th>
-            <th>级别</th>
-            <th>事件</th>
-            <th>设备</th>
-            <th>消息</th>
-            <th>附加信息</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-
       <!-- 功能说明 -->
       <div
         style="
@@ -276,7 +269,7 @@
           </li>
           <li>
             <strong>系统日志：</strong>
-            统一展示后端各类系统报警与状态变更事件，供运维人员核查。
+            点击右上角「查看业务日志」可查看全量系统报警与状态变更事件，支持分页查询。
           </li>
         </ul>
       </div>

@@ -10,7 +10,7 @@ from flask_socketio import SocketIO
 
 import db
 import mqtt_client
-from logger import log_event, get_latest_biz_logs
+from logger import log_event, get_latest_biz_logs, get_biz_logs_by_page
 from config import (
     OFFLINE_CHECK_INTERVAL_SEC,
     OFFLINE_TIMEOUT_SEC,
@@ -124,6 +124,11 @@ def index():
     """渲染主页"""
     return render_template("index.html", app_auth_token=AUTH_TOKEN)
 
+@app.route("/logs")
+def logs_page():
+    """渲染日志查询页面"""
+    return render_template("logs.html", app_auth_token=AUTH_TOKEN)
+
 @app.route("/api/latest")
 def get_latest():
     auth_failed = require_auth()
@@ -134,12 +139,18 @@ def get_latest():
 
 @app.route("/api/biz_logs")
 def get_biz_logs_route():
-    """暴露给前端访问历史业务日志"""
+    """暴露给前端访问历史业务日志（支持分页）"""
     auth_failed = require_auth()
     if auth_failed:
         return auth_failed
-    logs = get_latest_biz_logs(100)
-    return jsonify(logs)
+    
+    # 获取分页参数（默认第1页，每页20条）
+    page = int(request.args.get("page", 1))
+    page_size = int(request.args.get("page_size", 20))
+    
+    # 分页查询日志
+    log_data = get_biz_logs_by_page(page, page_size)
+    return jsonify(log_data)
 
 @app.route("/device/<device_id>/history")
 def get_device_history(device_id):
