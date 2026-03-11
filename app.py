@@ -10,7 +10,7 @@ from flask_socketio import SocketIO
 
 import db
 import mqtt_client
-from logger import log_event, get_latest_biz_logs, get_biz_logs_by_page
+from logger import log_event, get_latest_biz_logs, get_logs_by_page
 from config import (
     OFFLINE_CHECK_INTERVAL_SEC,
     OFFLINE_TIMEOUT_SEC,
@@ -137,9 +137,9 @@ def get_latest():
     data = db.get_latest_data_with_stats()
     return jsonify(data)
 
-@app.route("/api/biz_logs")
-def get_biz_logs_route():
-    """暴露给前端访问历史业务日志（支持分页）"""
+@app.route("/api/logs")
+def get_logs_route():
+    """暴露给前端访问所有日志（支持分页和筛选）"""
     auth_failed = require_auth()
     if auth_failed:
         return auth_failed
@@ -148,9 +148,21 @@ def get_biz_logs_route():
     page = int(request.args.get("page", 1))
     page_size = int(request.args.get("page_size", 20))
     
-    # 分页查询日志
-    log_data = get_biz_logs_by_page(page, page_size)
+    # 获取筛选参数
+    level = request.args.get("level", "").strip() or None
+    device_id = request.args.get("device_id", "").strip() or None
+    category = request.args.get("category", "").strip() or None
+    
+    # 分页查询日志（支持筛选）
+    log_data = get_logs_by_page(page, page_size, level, device_id, category)
     return jsonify(log_data)
+
+
+# 兼容旧接口
+@app.route("/api/biz_logs")
+def get_biz_logs_route():
+    """兼容旧接口：仅返回业务日志"""
+    return get_logs_route()
 
 @app.route("/device/<device_id>/history")
 def get_device_history(device_id):

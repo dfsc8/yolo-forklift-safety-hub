@@ -33,24 +33,28 @@ logger.addHandler(file_handler)
 # =========================
 # Biz 日志入库
 # =========================
-def save_biz_log(ts, level, event, device_id, message, extra=None):
+def save_log(ts, level, event, category, device_id, message, extra=None):
+    """
+    保存日志到 SQLite 数据库（支持 ops/biz/sec 所有分类）
+    """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS biz_logs (
+        CREATE TABLE IF NOT EXISTS all_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ts TEXT,
             level TEXT,
             event TEXT,
+            category TEXT,
             device_id TEXT,
             message TEXT,
             extra TEXT
         )
     """)
     cursor.execute("""
-        INSERT INTO biz_logs (ts, level, event, device_id, message, extra)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (ts, level, event, device_id, message, json.dumps(extra, ensure_ascii=False) if extra else None))
+        INSERT INTO all_logs (ts, level, event, category, device_id, message, extra)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (ts, level, event, category, device_id, message, json.dumps(extra, ensure_ascii=False) if extra else None))
     conn.commit()
     conn.close()
 
@@ -79,36 +83,56 @@ def get_latest_biz_logs(limit=100):
         })
     return logs
 
-def get_biz_logs_by_page(page=1, page_size=20):
+def get_logs_by_page(page=1, page_size=20, level=None, device_id=None, category=None):
     """
-    分页查询业务日志
+    分页查询日志（支持 ops/biz/sec 所有分类）
     :param page: 页码（从1开始）
     :param page_size: 每页条数
+    :param level: 日志级别筛选（可选，如 INFO/WARNING/ERROR）
+    :param device_id: 设备ID筛选（可选）
+    :param category: 分类筛选（可选，ops/biz/sec）
     :return: {logs: 日志列表, total: 总条数, total_pages: 总页数}
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     # 检查表是否存在
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='biz_logs'")
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='all_logs'")
     if not cursor.fetchone():
         conn.close()
         return {"logs": [], "total": 0, "total_pages": 0}
     
+    # 构建 WHERE 条件
+    conditions = []
+    params = []
+    if level:
+        conditions.append("level = ?")
+        params.append(level)
+    if device_id:
+        conditions.append("device_id = ?")
+        params.append(device_id)
+    if category:
+        conditions.append("category = ?")
+        params.append(category)
+    
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
+    
     # 查询总条数
-    cursor.execute("SELECT COUNT(*) FROM biz_logs")
+    cursor.execute(f"SELECT COUNT(*) FROM all_logs WHERE {where_clause}", params)
     total = cursor.fetchone()[0]
     
     # 计算总页数
-    total_pages = (total + page_size - 1) // page_size
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 0
     
     # 分页查询日志（按ID倒序，最新的在前）
     offset = (page - 1) * page_size
-    cursor.execute("""
-        SELECT * FROM biz_logs 
-        ORDER BY id DESC 
+    query = f"""
+        SELECT * FROM all_logs
+        WHERE {where_clause}
+        ORDER BY id DESC
         LIMIT ? OFFSET ?
-    """, (page_size, offset))
+    """
+    cursor.execute(query, params + [page_size, offset])
     
     rows = cursor.fetchall()
     conn.close()
@@ -120,9 +144,10 @@ def get_biz_logs_by_page(page=1, page_size=20):
             "ts": r[1],
             "level": r[2],
             "event": r[3],
-            "device_id": r[4],
-            "message": r[5],
-            "extra": json.loads(r[6]) if r[6] else {}
+            "category": r[4],
+            "device_id": r[5],
+            "message": r[6],
+            "extra": json.loads(r[7]) if r[7] else {}
         })
     
     return {
@@ -130,6 +155,12 @@ def get_biz_logs_by_page(page=1, page_size=20):
         "total": total,
         "total_pages": total_pages
     }
+
+
+# 兼容旧接口别名
+def get_biz_logs_by_page(page=1, page_size=20, level=None, device_id=None):
+    """兼容旧接口：默认查询 biz 日志"""
+    return get_logs_by_page(page, page_size, level, device_id, category="biz")
 
 # =========================
 # 统一日志接口
@@ -161,6 +192,5 @@ def log_event(level, event, category, module, message, device_id=None, request_i
     # 写到日志文件
     getattr(logger, level.lower(), logger.info)(json.dumps(log_data, ensure_ascii=False))
 
-    # Biz 日志写入 SQLite
-    if category == "biz":
-        save_biz_log(ts, level, event, device_id, message, extra)
+    # 所有分类日志都写入 SQLite（ops/biz/sec）
+    save_log(ts, level, event, category, device_id, message, extra)

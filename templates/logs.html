@@ -84,6 +84,44 @@
       cursor: not-allowed;
       opacity: 0.5;
     }
+
+    /* 筛选区域样式 */
+    .filter-bar {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .filter-bar label {
+      font-weight: bold;
+      color: #555;
+    }
+    .filter-bar select,
+    .filter-bar input {
+      padding: 6px 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+    .filter-bar button {
+      padding: 6px 16px;
+      background: #d9534f;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .filter-bar button:hover {
+      background: #c9302c;
+    }
+    .filter-bar button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -94,11 +132,39 @@
       <h1>业务日志查询</h1>
     </div>
 
+    <!-- 筛选控件 -->
+    <div class="filter-bar">
+      <label for="category-filter">日志分类：</label>
+      <select id="category-filter">
+        <option value="">全部</option>
+        <option value="ops">运维日志 (Ops)</option>
+        <option value="biz">业务日志 (Biz)</option>
+        <option value="sec">安全日志 (Sec)</option>
+      </select>
+
+      <label for="level-filter">日志级别：</label>
+      <select id="level-filter">
+        <option value="">全部</option>
+        <option value="DEBUG">DEBUG</option>
+        <option value="INFO">INFO</option>
+        <option value="WARNING">WARNING</option>
+        <option value="ERROR">ERROR</option>
+        <option value="CRITICAL">CRITICAL</option>
+      </select>
+
+      <label for="device-filter">设备ID：</label>
+      <input type="text" id="device-filter" placeholder="例如：FORK-001" />
+
+      <button id="filter-btn">筛选</button>
+      <button id="reset-btn">重置</button>
+    </div>
+
     <!-- 日志表格 -->
     <table id="log-table">
       <thead>
         <tr>
           <th>时间</th>
+          <th>分类</th>
           <th>级别</th>
           <th>事件</th>
           <th>设备</th>
@@ -127,6 +193,9 @@
     let currentPage = 1;
     const pageSize = 20; // 每页显示20条
     let totalPages = 0;
+    let currentCategory = '';
+    let currentLevel = '';
+    let currentDeviceId = '';
 
     // 鉴权请求头
     function authHeaders() {
@@ -149,10 +218,22 @@
       });
     }
 
-    // 获取日志数据（带分页）
+    // 获取日志数据（带分页和筛选）
     async function fetchLogs(page = 1) {
       try {
-        const res = await fetch(`/api/biz_logs?page=${page}&page_size=${pageSize}`, {
+        // 构建查询参数
+        let url = `/api/logs?page=${page}&page_size=${pageSize}`;
+        if (currentCategory) {
+          url += `&category=${encodeURIComponent(currentCategory)}`;
+        }
+        if (currentLevel) {
+          url += `&level=${encodeURIComponent(currentLevel)}`;
+        }
+        if (currentDeviceId) {
+          url += `&device_id=${encodeURIComponent(currentDeviceId)}`;
+        }
+        
+        const res = await fetch(url, {
           headers: authHeaders()
         });
         if (!res.ok) throw new Error("日志请求失败");
@@ -168,6 +249,7 @@
             const tr = document.createElement("tr");
             tr.innerHTML = `
               <td>${formatToChinaTime(l.ts)}</td>
+              <td>${l.category || '-'}</td>
               <td>${l.level || '-'}</td>
               <td>${l.event || '-'}</td>
               <td>${l.device_id || '-'}</td>
@@ -186,7 +268,7 @@
         document.getElementById('next-btn').disabled = currentPage >= totalPages;
       } catch (e) {
         console.error("获取日志失败:", e);
-        document.getElementById('log-table-body').innerHTML = '<tr><td colspan="6" style="text-align:center; color:red;">加载日志失败</td></tr>';
+        document.getElementById('log-table-body').innerHTML = '<tr><td colspan="7" style="text-align:center; color:red;">加载日志失败</td></tr>';
       }
     }
 
@@ -196,6 +278,32 @@
     });
     document.getElementById('next-btn').addEventListener('click', () => {
       if (currentPage < totalPages) fetchLogs(currentPage + 1);
+    });
+
+    // 绑定筛选事件
+    document.getElementById('filter-btn').addEventListener('click', () => {
+      currentCategory = document.getElementById('category-filter').value;
+      currentLevel = document.getElementById('level-filter').value;
+      currentDeviceId = document.getElementById('device-filter').value.trim();
+      fetchLogs(1); // 筛选时重置到第一页
+    });
+
+    // 绑定重置事件
+    document.getElementById('reset-btn').addEventListener('click', () => {
+      document.getElementById('category-filter').value = '';
+      document.getElementById('level-filter').value = '';
+      document.getElementById('device-filter').value = '';
+      currentCategory = '';
+      currentLevel = '';
+      currentDeviceId = '';
+      fetchLogs(1);
+    });
+
+    // 回车触发筛选
+    document.getElementById('device-filter').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('filter-btn').click();
+      }
     });
 
     // 初始化加载第一页
