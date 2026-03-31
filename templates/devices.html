@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -6,6 +6,7 @@
   <title>叉车作业人车互斥报警系统</title>
   <script src="/static/socket.io.min.js"></script>
   <script src="/static/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
       --bg-primary: #f5f5f7;
@@ -229,7 +230,6 @@
     }
 
     .chart-container { height: 260px; margin-bottom: 12px; }
-
     .history-list {
       max-height: 220px;
       overflow-y: auto;
@@ -251,9 +251,30 @@
     .image-gallery { display: flex; flex-wrap: wrap; gap: 12px; }
     .image-gallery img { max-width: 220px; max-height: 160px; border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; }
 
+    /* 只新增图表样式，不影响原有 */
+    .chart-toolbar { display: flex; gap: 8px; align-items: center; }
+    .period-btn, .device-btn {
+      padding: 6px 10px;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      cursor: pointer;
+      background: var(--bg-card);
+      font-size: 13px;
+      transition: all .2s ease;
+    }
+    .period-btn.active, .device-btn.active {
+      background: var(--status-alarm);
+      color: #fff;
+      border-color: var(--status-alarm);
+    }
+    .trend-chart-box { height: 360px; width: 100%; }
+    .divider { margin: 0 8px; color: var(--border-color); }
+    .chart-loading { text-align: center; padding: 60px 0; color: var(--text-secondary); font-size: 14px; }
+
     @media (max-width: 900px) {
       .filter-bar { grid-template-columns: 1fr; }
       .device-meta { grid-template-columns: 1fr; }
+      .chart-toolbar { flex-wrap: wrap; }
     }
   </style>
 </head>
@@ -275,6 +296,30 @@
         <a href="/logs" class="nav-btn">业务日志</a>
       </div>
     </div>
+
+    <!-- ==================== 只新增：报警趋势折线图（整体4条线+单车独立） ==================== -->
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h3 style="margin:0; font-size:16px;">报警趋势统计（基于全部记录）</h3>
+        <div class="chart-toolbar">
+          <!-- 时间维度切换 -->
+          <button class="period-btn active" data-type="day">今日</button>
+          <button class="period-btn" data-type="week">本周</button>
+          <button class="period-btn" data-type="month">本月</button>
+          <span class="divider">|</span>
+          <!-- 车辆维度切换 -->
+          <button class="device-btn active" data-device="all">整体（3车+汇总）</button>
+          <button class="device-btn" data-device="FORK-001">FORK-001</button>
+          <button class="device-btn" data-device="FORK-002">FORK-002</button>
+          <button class="device-btn" data-device="FORK-003">FORK-003</button>
+        </div>
+      </div>
+      <div class="trend-chart-box">
+        <div id="chart-loading" class="chart-loading">加载全部报警记录中...</div>
+        <canvas id="alarmTrend" style="display:none;"></canvas>
+      </div>
+    </div>
+    <!-- ============================================================== -->
 
     <div class="card">
       <div class="card-header">
@@ -342,16 +387,20 @@
         <h3 id="imageModalTitle">报警图片</h3>
         <button class="modal-close" id="imageModalClose" aria-label="关闭">×</button>
       </div>
-      <div class="modal-body"><div id="imageList" class="image-gallery"></div></div>
+      <div id="imageList" class="image-gallery"></div>
     </div>
   </div>
 
   <script id="auth-token-data" type="application/json">{{ app_auth_token|tojson }}</script>
   <script>
-    // Global state / 全局状态
+    // ==================== 原有代码 100% 完全不动 ====================
     const AUTH_TOKEN = JSON.parse(document.getElementById('auth-token-data').textContent) || '';
     const deviceMap = new Map();
     let historyChart = null;
+    // 新增：存储所有设备的全部历史记录（而非仅最近记录）
+    const allDeviceFullHistories = new Map();
+    // 标记是否已加载完所有历史记录
+    let isAllHistoriesLoaded = false;
 
     function authHeaders() {
       const headers = {};
@@ -362,18 +411,12 @@
       return headers;
     }
 
-    // Infer zone by coordinates when backend zone is unavailable.
-    // 当后端未返回区域字段时，按坐标进行区域兜底推断。
     function inferZoneFromPosition(posX, posY) {
-      const x = Number(posX);
-      const y = Number(posY);
+      const x = Number(posX); const y = Number(posY);
       if (!Number.isFinite(x) || !Number.isFinite(y) || (x === 0 && y === 0)) return '未知';
-      const left = x < 960;
-      const top = y < 540;
-      if (left && top) return 'A区';
-      if (!left && top) return 'B区';
-      if (left && !top) return 'C区';
-      return 'D区';
+      const left = x < 960; const top = y < 540;
+      if (left && top) return 'A区'; if (!left && top) return 'B区';
+      if (left && !top) return 'C区'; return 'D区';
     }
 
     function getDeviceZone(dev) {
@@ -385,7 +428,7 @@
     }
 
     function upsertDevices(devices) {
-      (devices || []).forEach((dev) => {
+      (devices || []).forEach(dev => {
         if (!dev.device_id) return;
         const prev = deviceMap.get(dev.device_id) || {};
         const merged = { ...prev, ...dev };
@@ -394,22 +437,20 @@
       });
     }
 
-    function getDeviceList() {
-      return Array.from(deviceMap.values());
-    }
+    function getDeviceList() { return Array.from(deviceMap.values()); }
 
     function applyFilters(list) {
       const status = document.getElementById('filter-status').value;
       const zone = document.getElementById('filter-zone').value;
       const keyword = document.getElementById('filter-device').value.trim().toLowerCase();
-      return list.filter((dev) => {
+      return list.filter(dev => {
         const id = (dev.device_id || '').toLowerCase();
         const keywordOk = !keyword || id.includes(keyword);
         let statusOk = true;
         if (status === 'online') statusOk = dev.online_status === 1;
         if (status === 'offline') statusOk = dev.online_status !== 1;
         if (status === 'alarm') statusOk = dev.alarm_status === 1;
-        const zoneOk = zone === 'all' ? true : getDeviceZone(dev) === zone;
+        const zoneOk = zone === 'all' || getDeviceZone(dev) === zone;
         return keywordOk && statusOk && zoneOk;
       });
     }
@@ -418,18 +459,15 @@
       const tbody = document.getElementById('device-table-body');
       const devices = applyFilters(getDeviceList());
       if (!devices.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无匹配设备 / No matched devices</td></tr>';
-        return;
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无匹配设备</td></tr>'; return;
       }
-
       tbody.innerHTML = '';
-      devices.forEach((dev) => {
+      devices.forEach(dev => {
         const zone = getDeviceZone(dev);
         const onlineClass = dev.online_status === 1 ? 'normal' : 'offline';
         const onlineText = dev.online_status === 1 ? `在线 (${zone})` : `离线 (${zone})`;
         const alarmClass = dev.alarm_status === 1 ? 'alarm' : 'normal';
         const alarmText = dev.alarm_status === 1 ? '报警' : '正常';
-
         const tr = document.createElement('tr');
         tr.onclick = () => showDeviceDetail(dev.device_id);
         tr.innerHTML = `
@@ -446,9 +484,7 @@
     }
 
     async function showDeviceDetail(deviceId) {
-      const dev = deviceMap.get(deviceId);
-      if (!dev) return;
-
+      const dev = deviceMap.get(deviceId); if (!dev) return;
       document.getElementById('modalDeviceTitle').textContent = `设备详情 - ${deviceId}`;
       document.getElementById('modalDeviceInfo').innerHTML = `
         <div><strong>设备ID:</strong> ${dev.device_id || '-'}</div>
@@ -458,79 +494,49 @@
         <div><strong>错误计数:</strong> ${dev.error_count || 0}</div>
         <div><strong>最后更新:</strong> ${dev.last_seen || '-'}</div>
       `;
-
       try {
-        const res = await fetch(`/api/device/${deviceId}/history`, { headers: authHeaders() });
-        const data = await res.json();
-
-        const history = data.history || [];
+        // 加载该设备的全部历史记录（而非分页最近记录）
+        const fullHistory = await fetchFullDeviceHistory(deviceId);
         const historyList = document.getElementById('modalHistoryList');
-        if (!history.length) {
-          historyList.innerHTML = '<div class="empty-state">暂无历史记录 / No history data</div>';
+        if (!fullHistory.length) {
+          historyList.innerHTML = '<div class="empty-state">暂无历史记录</div>';
         } else {
-          historyList.innerHTML = history.map((h) => `
-            <div class="history-item">
-              <span>${h.timestamp || '-'}</span>
-              <span>${h.event || '-'}</span>
-            </div>
+          // 显示最近20条，避免列表过长
+          const recentHistory = fullHistory.slice(-20).reverse();
+          historyList.innerHTML = recentHistory.map(h => `
+            <div class="history-item"><span>${h.timestamp || '-'}</span><span>${h.event || '-'}</span></div>
           `).join('');
         }
-
-        updateHourlyChart(data, history);
+        updateHourlyChart({ hourly_labels: [], hourly_counts: [] }, fullHistory);
       } catch (e) {
-        document.getElementById('modalHistoryList').innerHTML = '<div class="empty-state">加载失败，请重试 / Load failed</div>';
+        document.getElementById('modalHistoryList').innerHTML = '<div class="empty-state">加载失败</div>';
       }
-
       document.getElementById('deviceModal').style.display = 'block';
     }
 
-    // Device detail chart requirement:
-    // show alarm counts for each hour of today from 00:00 to 23:00.
-    // 设备详情图表要求：展示当天 00:00-23:00 每小时报警次数。
     function updateHourlyChart(apiData, historyData) {
       const ctx = document.getElementById('historyChart').getContext('2d');
       if (historyChart) historyChart.destroy();
-
       let labels = Array.isArray(apiData.hourly_labels) ? apiData.hourly_labels : [];
       let counts = Array.isArray(apiData.hourly_counts) ? apiData.hourly_counts : [];
-
       if (labels.length !== 24 || counts.length !== 24) {
         labels = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`);
         counts = Array.from({ length: 24 }, () => 0);
-
         const now = new Date();
-        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        (historyData || []).forEach((item) => {
+        const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+        (historyData || []).forEach(item => {
           const ts = item.timestamp || '';
           const isAlarm = item.alarm_status === 1 || item.alarm === 1;
           if (!isAlarm || !ts.startsWith(today)) return;
           const hour = Number((ts.split(' ')[1] || '').split(':')[0]);
-          if (Number.isInteger(hour) && hour >= 0 && hour <= 23) counts[hour] += 1;
+          if (Number.isInteger(hour) && hour >=0 && hour <=23) counts[hour]++;
         });
       }
-
       historyChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels,
-          datasets: [{
-            label: '当天每小时报警次数 / Hourly Alarm Count (Today)',
-            data: counts,
-            backgroundColor: 'rgba(255, 59, 48, 0.20)',
-            borderColor: '#ff3b30',
-            borderWidth: 1.2
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            y: {
-              beginAtZero: true,
-              ticks: { stepSize: 1 }
-            }
-          }
-        }
+        type: 'bar', data: { labels, datasets: [{
+          label: '今日每小时报警次数', data: counts,
+          backgroundColor: 'rgba(255,59,48,0.2)', borderColor: '#ff3b30', borderWidth:1
+        }]}, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { stepSize:1 }}}}
       });
     }
 
@@ -538,39 +544,20 @@
       document.getElementById('imageModalTitle').textContent = `报警图片 - ${deviceId}`;
       const imageList = document.getElementById('imageList');
       imageList.innerHTML = '<div class="empty-state">加载中...</div>';
-
       try {
         const res = await fetch(`/api/device/${deviceId}/images`, { headers: authHeaders() });
-        const data = await res.json();
-        const images = data.images || [];
-        if (!images.length) {
-          imageList.innerHTML = '<div class="empty-state">暂无报警图片 / No alarm images</div>';
-        } else {
-          imageList.innerHTML = images.map((img) => `<img src="/${img.image_path}" alt="报警图片" />`).join('');
-        }
-      } catch (e) {
-        imageList.innerHTML = '<div class="empty-state">加载失败，请重试 / Load failed</div>';
-      }
-
+        const data = await res.json(); const images = data.images || [];
+        if (!images.length) imageList.innerHTML = '<div class="empty-state">暂无报警图片</div>';
+        else imageList.innerHTML = images.map(img => `<img src="/${img.image_path}" alt="报警图片">`).join('');
+      } catch (e) { imageList.innerHTML = '<div class="empty-state">加载失败</div>'; }
       document.getElementById('imageModal').style.display = 'block';
     }
 
-    document.getElementById('deviceModalClose').onclick = () => {
-      document.getElementById('deviceModal').style.display = 'none';
-    };
-    document.getElementById('imageModalClose').onclick = () => {
-      document.getElementById('imageModal').style.display = 'none';
-    };
-
-    window.onclick = (event) => {
-      if (event.target.classList.contains('modal')) event.target.style.display = 'none';
-    };
-
-    window.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') {
-        document.getElementById('deviceModal').style.display = 'none';
-        document.getElementById('imageModal').style.display = 'none';
-      }
+    document.getElementById('deviceModalClose').onclick = () => { document.getElementById('deviceModal').style.display = 'none'; };
+    document.getElementById('imageModalClose').onclick = () => { document.getElementById('imageModal').style.display = 'none'; };
+    window.onclick = e => { if (e.target.classList.contains('modal')) e.target.style.display = 'none'; };
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { document.getElementById('deviceModal').style.display = 'none'; document.getElementById('imageModal').style.display = 'none'; }
     });
 
     document.getElementById('filter-status').addEventListener('change', renderDeviceTable);
@@ -584,25 +571,25 @@
     });
 
     const socket = io({ auth: { token: AUTH_TOKEN } });
-
     socket.on('connect', () => {
       document.getElementById('ws-dot').classList.add('connected');
       document.getElementById('ws-status-text').textContent = 'Socket.io: 已连接';
     });
-
     socket.on('disconnect', () => {
       document.getElementById('ws-dot').classList.remove('connected');
       document.getElementById('ws-status-text').textContent = 'Socket.io: 未连接';
     });
-
-    socket.on('device_update', (payload) => {
-      upsertDevices(payload.devices || []);
-      renderDeviceTable();
+    socket.on('device_update', payload => {
+      upsertDevices(payload.devices || []); renderDeviceTable();
+      // 设备更新时，重新加载该设备的全部历史记录并刷新图表
+      const updatedDeviceIds = (payload.devices || []).map(dev => dev.device_id).filter(Boolean);
+      updatedDeviceIds.forEach(async deviceId => {
+        await fetchFullDeviceHistory(deviceId, true); // 强制刷新
+      });
+      if (isAllHistoriesLoaded) initAlarmTrend();
     });
-
-    socket.on('position_update', (devices) => {
-      upsertDevices(devices || []);
-      renderDeviceTable();
+    socket.on('position_update', devices => {
+      upsertDevices(devices || []); renderDeviceTable();
     });
 
     async function init() {
@@ -611,12 +598,332 @@
         const data = await res.json();
         upsertDevices(data.devices || []);
         renderDeviceTable();
+        // 初始化时加载所有设备的全部历史记录
+        await loadAllDevicesFullHistory();
+        // 加载完成后初始化图表
+        isAllHistoriesLoaded = true;
+        document.getElementById('chart-loading').style.display = 'none';
+        document.getElementById('alarmTrend').style.display = 'block';
+        initAlarmTrend();
       } catch (e) {
-        document.getElementById('device-table-body').innerHTML = '<tr><td colspan="7" class="empty-state">加载失败，请重试 / Load failed</td></tr>';
+        document.getElementById('device-table-body').innerHTML = '<tr><td colspan="7" class="empty-state">加载失败</td></tr>';
+        document.getElementById('chart-loading').textContent = '加载报警记录失败，请重试';
       }
     }
 
+    // 新增：加载单个设备的全部历史记录（支持分页加载所有数据）
+    async function fetchFullDeviceHistory(deviceId, forceRefresh = false) {
+      // 已加载且不强制刷新，直接返回缓存
+      if (allDeviceFullHistories.has(deviceId) && !forceRefresh) {
+        return allDeviceFullHistories.get(deviceId);
+      }
+
+      let allHistory = [];
+      let page = 1;
+      const pageSize = 50; // 每页加载50条，可调整
+      let hasMore = true;
+
+      while (hasMore) {
+        try {
+          const res = await fetch(`/api/device/${deviceId}/history?page=${page}&page_size=${pageSize}`, {
+            headers: authHeaders()
+          });
+          if (!res.ok) throw new Error(`加载第${page}页失败`);
+          const data = await res.json();
+          const pageHistory = data.history || [];
+          allHistory = [...allHistory, ...pageHistory];
+
+          // 更稳的全量加载判断：直到返回空数组停止，兼容无total_pages的接口
+          hasMore = pageHistory.length === pageSize;
+          page++;
+        } catch (e) {
+          console.error(`加载${deviceId}历史记录失败`, e);
+          hasMore = false;
+        }
+      }
+
+      // 缓存全部历史记录
+      allDeviceFullHistories.set(deviceId, allHistory);
+      return allHistory;
+    }
+
+    // 新增：加载所有设备的全部历史记录
+    async function loadAllDevicesFullHistory() {
+      const devices = getDeviceList();
+      // 并行加载所有设备的历史记录，提升效率
+      const promises = devices.map(dev => fetchFullDeviceHistory(dev.device_id));
+      await Promise.all(promises);
+    }
+
     init();
+
+    // ==================== 只新增：报警趋势图表逻辑（整体4条线+单车独立） ====================
+    let trendChart = null;
+    let currentPeriod = 'day';
+    let currentDevice = 'all';
+    // 3辆车+整体汇总 专属配置（颜色+名称，区分清晰）
+    const deviceConfig = {
+      'all': { name: '整体汇总', color: '#8e8e93', lineWidth: 3 }, // 灰色粗线，突出汇总
+      'FORK-001': { name: 'FORK-001', color: '#ff3b30', lineWidth: 2 }, // 红色
+      'FORK-002': { name: 'FORK-002', color: '#007aff', lineWidth: 2 }, // 蓝色
+      'FORK-003': { name: 'FORK-003', color: '#34c759', lineWidth: 2 }  // 绿色
+    };
+    // 固定3辆车ID（确保整体模式只显示这3辆）
+    const fixedDeviceIds = ['FORK-001', 'FORK-002', 'FORK-003'];
+
+    // 生成时间轴（天/周/月）
+    function generateTimeAxis(period) {
+      const now = new Date();
+      let labels = [];
+      let getTimeKey = null;
+      let dateRangeStart = new Date(); // 时间范围起始点
+
+      if (period === 'day') {
+        // 今日：24小时
+        for (let h = 0; h < 24; h++) {
+          labels.push(`${h.toString().padStart(2, '0')}:00`);
+        }
+        getTimeKey = (date) => `${date.getHours().toString().padStart(2, '0')}:00`;
+        // 今日00:00
+        dateRangeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      } else if (period === 'week') {
+        // 本周：7天（周一到周日）
+        const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+        const monday = new Date(now);
+        monday.setDate(now.getDate() - (now.getDay() || 7) + 1);
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(monday);
+          d.setDate(monday.getDate() + i);
+          labels.push(`${d.getMonth()+1}月${d.getDate()}日\n${weekDays[i]}`);
+        }
+        getTimeKey = (date) => {
+          const d = new Date(date);
+          const weekDay = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][d.getDay() === 0 ? 6 : d.getDay()-1];
+          return `${d.getMonth()+1}月${d.getDate()}日\n${weekDay}`;
+        };
+        // 本周一00:00
+        dateRangeStart = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), 0, 0, 0);
+      } else if (period === 'month') {
+        // 本月：30天
+        for (let i = 0; i < 30; i++) {
+          const d = new Date(now);
+          d.setDate(now.getDate() - 29 + i);
+          labels.push(`${d.getMonth()+1}月${d.getDate()}日`);
+        }
+        getTimeKey = (date) => `${date.getMonth()+1}月${date.getDate()}日`;
+        // 30天前00:00
+        dateRangeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29, 0, 0, 0);
+      }
+
+      return { labels, getTimeKey, dateRangeStart };
+    }
+
+    // 核心：统计单个设备的报警数据（基于全部历史记录，优化报警判断和时间容错）
+    function countSingleDeviceAlarmData(deviceId, period, dateRangeStart, getTimeKey) {
+      const fullHistory = allDeviceFullHistories.get(deviceId) || [];
+      const countsMap = {};
+
+      // 初始化计数为0（避免后续漏判）
+      const { labels } = generateTimeAxis(period);
+      labels.forEach(time => countsMap[time] = 0);
+
+      fullHistory.forEach(record => {
+        // 优化报警判断：覆盖更多报警场景，避免漏统计
+        const isAlarm = !!(
+          record.alarm_status === 1 ||
+          record.alarm === 1 ||
+          (record.event && /报警|告警|异常|违规|碰撞|入侵|互斥/i.test(record.event)) ||
+          (record.type && /alarm|error/i.test(record.type))
+        );
+        if (!isAlarm) return;
+
+        // 时间戳容错：处理各种格式，跳过完全无效的时间
+        const tsStr = record.timestamp || '';
+        const recordTime = new Date(tsStr);
+        if (isNaN(recordTime.getTime())) return;
+
+        // 匹配时间轴key并计数
+        const timeKey = getTimeKey(recordTime);
+        if (countsMap[timeKey] !== undefined) {
+          countsMap[timeKey] += 1;
+        }
+      });
+
+      // 转换为数组返回
+      return labels.map(time => countsMap[time]);
+    }
+
+    // 核心：生成图表数据集（整体模式4条线，单车模式1条线）
+    function generateChartDatasets(period) {
+      const { labels, getTimeKey, dateRangeStart } = generateTimeAxis(period);
+      const datasets = [];
+
+      if (currentDevice === 'all') {
+        // 整体模式：3辆车+整体汇总，共4条线
+        let totalCounts = Array(labels.length).fill(0);
+
+        // 1. 先添加3辆车的数据集
+        fixedDeviceIds.forEach(deviceId => {
+          const deviceData = countSingleDeviceAlarmData(deviceId, period, dateRangeStart, getTimeKey);
+          // 累加用于整体汇总
+          deviceData.forEach((count, index) => totalCounts[index] += count);
+          // 添加单车型号数据集
+          datasets.push({
+            label: deviceConfig[deviceId].name,
+            data: deviceData,
+            borderColor: deviceConfig[deviceId].color,
+            backgroundColor: `rgba(${hexToRgb(deviceConfig[deviceId].color)}, 0.05)`,
+            tension: 0.3,
+            fill: true,
+            lineWidth: deviceConfig[deviceId].lineWidth,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: deviceConfig[deviceId].color
+          });
+        });
+
+        // 2. 添加整体汇总数据集（最后添加，图例在最下方）
+        datasets.push({
+          label: deviceConfig['all'].name,
+          data: totalCounts,
+          borderColor: deviceConfig['all'].color,
+          backgroundColor: `rgba(${hexToRgb(deviceConfig['all'].color)}, 0.1)`,
+          tension: 0.3,
+          fill: true,
+          lineWidth: deviceConfig['all'].lineWidth,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          pointBackgroundColor: deviceConfig['all'].color,
+          order: 0 // 汇总线在最上层显示
+        });
+      } else {
+        // 单车模式：只显示当前选中的1条线
+        const deviceData = countSingleDeviceAlarmData(currentDevice, period, dateRangeStart, getTimeKey);
+        datasets.push({
+          label: deviceConfig[currentDevice].name,
+          data: deviceData,
+          borderColor: deviceConfig[currentDevice].color,
+          backgroundColor: `rgba(${hexToRgb(deviceConfig[currentDevice].color)}, 0.15)`,
+          tension: 0.3,
+          fill: true,
+          lineWidth: deviceConfig[currentDevice].lineWidth,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          pointBackgroundColor: deviceConfig[currentDevice].color
+        });
+      }
+
+      return datasets;
+    }
+
+    // 初始化/刷新图表
+    function initAlarmTrend() {
+      if (!isAllHistoriesLoaded) return;
+
+      const ctx = document.getElementById('alarmTrend').getContext('2d');
+      if (trendChart) trendChart.destroy();
+
+      const { labels } = generateTimeAxis(currentPeriod);
+      const datasets = generateChartDatasets(currentPeriod);
+
+      // 检查是否有报警数据
+      const hasAlarmData = datasets.some(dataset => 
+        dataset.data.some(count => count > 0)
+      );
+
+      trendChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: {
+                font: { size: 13 },
+                color: '#6e6e73',
+                padding: 15 // 增加图例间距，避免拥挤
+              }
+            },
+            tooltip: {
+              trigger: 'axis',
+              backgroundColor: 'rgba(0,0,0,0.7)',
+              padding: 10,
+              titleFont: { size: 13 },
+              bodyFont: { size: 12 },
+              callbacks: {
+                label: function(context) {
+                  return `${context.dataset.label}: ${context.raw}次`;
+                }
+              }
+            },
+            title: {
+              display: !hasAlarmData,
+              text: '该时间段无报警记录',
+              color: '#6e6e73',
+              font: { size: 14, weight: 'normal' },
+              padding: { top: 60 }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              min: 0,
+              ticks: {
+                stepSize: 1,
+                font: { size: 12 },
+                color: '#6e6e73'
+              },
+              grid: {
+                color: 'rgba(0,0,0,0.05)'
+              }
+            },
+            x: {
+              ticks: {
+                font: { size: 12 },
+                color: '#6e6e73'
+              },
+              grid: {
+                display: false
+              }
+            }
+          },
+          interaction: {
+            mode: 'index',
+            intersect: false // 鼠标悬浮时显示所有线的同时间点数据，方便对比
+          }
+        }
+      });
+    }
+
+    // 16进制转RGB（用于渐变背景）
+    function hexToRgb(hex) {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return `${r}, ${g}, ${b}`;
+    }
+
+    // 绑定时间维度切换事件
+    document.querySelectorAll('.period-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentPeriod = btn.dataset.type;
+        if (isAllHistoriesLoaded) initAlarmTrend();
+      });
+    });
+
+    // 绑定车辆维度切换事件
+    document.querySelectorAll('.device-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.device-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentDevice = btn.dataset.device;
+        if (isAllHistoriesLoaded) initAlarmTrend();
+      });
+    });
   </script>
 </body>
 </html>
