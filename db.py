@@ -14,6 +14,7 @@ from config import DB_PATH, HISTORY_LIMIT, TREND_LIMIT, DB_BUSY_TIMEOUT_MS
 IMAGE_DIR = "images/alarms"
 os.makedirs(IMAGE_DIR, exist_ok=True)
 
+
 def get_db_connection():
     """获取数据库连接，设置 row_factory 为 Row 以便通过键名访问"""
     conn = sqlite3.connect(DB_PATH)
@@ -24,11 +25,12 @@ def get_db_connection():
     conn.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_MS};")
     return conn
 
+
 def init_db():
     """初始化数据库表结构"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     # 报警明细表
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS alarms (
@@ -38,7 +40,7 @@ def init_db():
             timestamp TEXT
         )
     """)
-    
+
     # 设备状态表
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS devices (
@@ -114,34 +116,9 @@ def init_db():
         ON alarm_images(device_id, image_path)
     """)
 
-    # 报警会话表（记录每次报警的起止时间和时长）
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS alarm_sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_id TEXT NOT NULL,
-            start_time TEXT NOT NULL,
-            end_time TEXT,
-            duration_sec REAL,
-            status INTEGER DEFAULT 0
-        )
-    """)
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_alarm_sessions_device
-        ON alarm_sessions(device_id, status)
-    """)
-
-    # 添加唯一索引，防止重复记录
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_alarm_unique
-        ON alarm_images(device_id, timestamp)
-    """)
-    cursor.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_alarm_unique_path
-        ON alarm_images(device_id, image_path)
-    """)
-
     conn.commit()
     conn.close()
+
 
 def update_device_data(device_id, alarm, mqtt_timestamp=None):
     """
@@ -153,58 +130,76 @@ def update_device_data(device_id, alarm, mqtt_timestamp=None):
     cursor = conn.cursor()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     changed = {}
-    
+
     # 1. 插入历史明细表
-    cursor.execute("""
+    cursor.execute(
+        """
         INSERT INTO alarms (device_id, alarm, timestamp)
         VALUES (?, ?, ?)
-    """, (device_id, alarm, now_str))
-    
+    """,
+        (device_id, alarm, now_str),
+    )
+
     # 2. 更新设备实时状态逻辑
-    cursor.execute("SELECT alarm_status, online_status, error_count, boot_time FROM devices WHERE device_id = ?", (device_id,))
+    cursor.execute(
+        "SELECT alarm_status, online_status, error_count, boot_time FROM devices WHERE device_id = ?",
+        (device_id,),
+    )
     row = cursor.fetchone()
-    
+
     if row:
-        old_alarm = row['alarm_status']
-        old_online = row['online_status']
-        error_count = row['error_count']
-        boot_time = row['boot_time']
-        
+        old_alarm = row["alarm_status"]
+        old_online = row["online_status"]
+        error_count = row["error_count"]
+        boot_time = row["boot_time"]
+
         if old_online == 0:
             boot_time = now_str
-            changed['online_marked'] = True
-            
+            changed["online_marked"] = True
+
         if old_alarm == 0 and alarm == 1:
             error_count += 1
-            changed['alarm_raised'] = True
+            changed["alarm_raised"] = True
             # 创建报警会话记录
             session_start = mqtt_timestamp if mqtt_timestamp else now_str
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO alarm_sessions (device_id, start_time, status)
                 VALUES (?, ?, 0)
-            """, (device_id, session_start))
+            """,
+                (device_id, session_start),
+            )
 
         if old_alarm == 1 and alarm == 0:
-            changed['alarm_cleared'] = True
+            changed["alarm_cleared"] = True
             # 结束最近的未结束会话
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, start_time FROM alarm_sessions
                 WHERE device_id = ? AND status = 0
                 ORDER BY id DESC LIMIT 1
-            """, (device_id,))
+            """,
+                (device_id,),
+            )
             active_session = cursor.fetchone()
             if active_session:
                 end_time = mqtt_timestamp if mqtt_timestamp else now_str
-                start_dt = datetime.strptime(active_session['start_time'], "%Y-%m-%d %H:%M:%S")
+                start_dt = datetime.strptime(
+                    active_session["start_time"], "%Y-%m-%d %H:%M:%S"
+                )
                 end_dt = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
                 duration = (end_dt - start_dt).total_seconds()
-                cursor.execute("""
+                cursor.execute(
+                    """
                     UPDATE alarm_sessions
                     SET end_time = ?, duration_sec = ?, status = 1
                     WHERE id = ?
-                """, (end_time, duration, active_session['id']))
-            
-        cursor.execute("""
+                """,
+                    (end_time, duration, active_session["id"]),
+                )
+
+        cursor.execute(
+            """
             UPDATE devices SET
                 alarm_status = ?,
                 error_count = ?,
@@ -213,30 +208,41 @@ def update_device_data(device_id, alarm, mqtt_timestamp=None):
                 online_status = 1,
                 update_time = ?
             WHERE device_id = ?
-        """, (alarm, error_count, boot_time, now_str, now_str, device_id))
+        """,
+            (alarm, error_count, boot_time, now_str, now_str, device_id),
+        )
     else:
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO devices (device_id, alarm_status, error_count, boot_time, last_seen, online_status, update_time)
             VALUES (?, ?, ?, ?, ?, 1, ?)
-        """, (device_id, alarm, (1 if alarm == 1 else 0), now_str, now_str, now_str))
-        changed['online_marked'] = True
+        """,
+            (device_id, alarm, (1 if alarm == 1 else 0), now_str, now_str, now_str),
+        )
+        changed["online_marked"] = True
         if alarm == 1:
-            changed['alarm_raised'] = True
+            changed["alarm_raised"] = True
             session_start = mqtt_timestamp if mqtt_timestamp else now_str
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO alarm_sessions (device_id, start_time, status)
                 VALUES (?, ?, 0)
-            """, (device_id, session_start))
-        
+            """,
+                (device_id, session_start),
+            )
+
     conn.commit()
     conn.close()
     return changed
+
 
 def set_device_offline(device_id):
     """标记设备为离线"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE devices SET online_status = 0 WHERE device_id = ?", (device_id,))
+    cursor.execute(
+        "UPDATE devices SET online_status = 0 WHERE device_id = ?", (device_id,)
+    )
     conn.commit()
     conn.close()
 
@@ -250,10 +256,11 @@ def get_all_devices():
     conn.close()
     return [dict(row) for row in rows]
 
+
 def get_latest_data_with_stats():
     """获取所有设备数据及统计信息"""
     devices = get_all_devices()
-    # active alarm sessions map: device_id -> start_time
+    # 活跃报警会话映射: device_id -> start_time
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -272,7 +279,9 @@ def get_latest_data_with_stats():
             try:
                 start_dt = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
                 dev["alarm_start_time"] = start_time
-                dev["current_duration_sec"] = max(0, (now_dt - start_dt).total_seconds())
+                dev["current_duration_sec"] = max(
+                    0, (now_dt - start_dt).total_seconds()
+                )
             except Exception:
                 dev["alarm_start_time"] = start_time
                 dev["current_duration_sec"] = None
@@ -280,32 +289,35 @@ def get_latest_data_with_stats():
             dev["alarm_start_time"] = None
             dev["current_duration_sec"] = None
     total = len(devices)
-    online = sum(1 for d in devices if d['online_status'] == 1)
-    alarm = sum(1 for d in devices if d['alarm_status'] == 1 and d['online_status'] == 1)
-    
+    online = sum(1 for d in devices if d["online_status"] == 1)
+    alarm = sum(
+        1 for d in devices if d["alarm_status"] == 1 and d["online_status"] == 1
+    )
+
     return {
         "devices": devices,
-        "stats": {
-            "total": total,
-            "online": online,
-            "alarm": alarm
-        }
+        "stats": {"total": total, "online": online, "alarm": alarm},
     }
+
 
 def get_device_history_raw(device_id, limit=HISTORY_LIMIT):
     """获取原始最近记录，用于列表展示"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT alarm, timestamp 
         FROM alarms 
         WHERE device_id = ? 
         ORDER BY timestamp DESC 
         LIMIT ?
-    """, (device_id, limit))
+    """,
+        (device_id, limit),
+    )
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
 
 def get_device_alarm_trend(device_id, limit=TREND_LIMIT):
     """
@@ -316,7 +328,7 @@ def get_device_alarm_trend(device_id, limit=TREND_LIMIT):
     """
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     # 子查询取最近 limit 条，外部查询进行分钟级聚合
     query = """
         SELECT 
@@ -335,14 +347,12 @@ def get_device_alarm_trend(device_id, limit=TREND_LIMIT):
     cursor.execute(query, (device_id, limit))
     rows = cursor.fetchall()
     conn.close()
-    
-    labels = [row['minute'] for row in rows]
-    counts = [row['alarm_count'] for row in rows]
-    
-    return {
-        "labels": labels,
-        "counts": counts
-    }
+
+    labels = [row["minute"] for row in rows]
+    counts = [row["alarm_count"] for row in rows]
+
+    return {"labels": labels, "counts": counts}
+
 
 def get_device_alarm_hourly_today(device_id):
     """
@@ -351,7 +361,8 @@ def get_device_alarm_hourly_today(device_id):
     """
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT
             strftime('%H', timestamp) AS hour,
             COUNT(*) AS alarm_count
@@ -361,12 +372,13 @@ def get_device_alarm_hourly_today(device_id):
           AND date(timestamp) = date('now', 'localtime')
         GROUP BY hour
         ORDER BY hour ASC
-    """, (device_id,))
+    """,
+        (device_id,),
+    )
     rows = cursor.fetchall()
     conn.close()
 
     # 预置 00-23 点，保证前端始终拿到完整 24 小时数组。
-    # Pre-fill 24 hour buckets so frontend always receives a full-day timeline.
     labels = [f"{h:02d}:00" for h in range(24)]
     counts = [0 for _ in range(24)]
 
@@ -378,51 +390,61 @@ def get_device_alarm_hourly_today(device_id):
         if 0 <= hour_idx <= 23:
             counts[hour_idx] = int(row["alarm_count"] or 0)
 
-    return {
-        "labels": labels,
-        "counts": counts
-    }
+    return {"labels": labels, "counts": counts}
+
 
 def save_alarm_image(device_id, image_path, timestamp):
     """保存报警图片记录到数据库"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         INSERT OR IGNORE INTO alarm_images (device_id, image_path, timestamp)
         VALUES (?, ?, ?)
-    """, (device_id, image_path, timestamp))
+    """,
+        (device_id, image_path, timestamp),
+    )
     conn.commit()
     conn.close()
+
 
 def get_device_images(device_id, limit=20):
     """获取设备的报警图片列表"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT id, image_path, timestamp
         FROM alarm_images
         WHERE device_id = ?
         ORDER BY timestamp DESC
         LIMIT ?
-    """, (device_id, limit))
+    """,
+        (device_id, limit),
+    )
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
 
 def get_latest_image(device_id):
     """获取设备的最新报警图片"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT image_path, timestamp
         FROM alarm_images
         WHERE device_id = ?
         ORDER BY timestamp DESC
         LIMIT 1
-    """, (device_id,))
+    """,
+        (device_id,),
+    )
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
 
 def save_base64_image(device_id, base64_data, timestamp):
     """
@@ -436,60 +458,70 @@ def save_base64_image(device_id, base64_data, timestamp):
         # 解析 data URL 格式 (data:image/jpeg;base64,...)
         if "," in base64_data:
             header, base64_data = base64_data.split(",", 1)
-        
+
         # 解码 base64
         image_bytes = base64.b64decode(base64_data)
-        
+
         # 生成文件名
         safe_timestamp = timestamp.replace(":", "-").replace(" ", "_")
         filename = f"{device_id}_{safe_timestamp}.jpg"
         filepath = os.path.join(IMAGE_DIR, filename)
-        
+
         # 写入文件
         with open(filepath, "wb") as f:
             f.write(image_bytes)
-        
+
         # 保存到数据库
         save_alarm_image(device_id, filepath, timestamp)
-        
+
         return filepath
     except Exception as e:
         print(f"[错误] 保存报警图片失败: {e}")
         return None
 
+
 def init_device_positions():
     """初始化设备位置（随机生成）"""
     import random
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     # 获取所有设备
     cursor.execute("SELECT device_id FROM devices")
     devices = cursor.fetchall()
-    
+
     for dev in devices:
-        device_id = dev['device_id']
+        device_id = dev["device_id"]
         # 检查是否已有位置
-        cursor.execute("SELECT pos_x, pos_y FROM devices WHERE device_id = ?", (device_id,))
+        cursor.execute(
+            "SELECT pos_x, pos_y FROM devices WHERE device_id = ?", (device_id,)
+        )
         row = cursor.fetchone()
-        if row and (row['pos_x'] is None or row['pos_x'] == 0):
+        if row and (row["pos_x"] is None or row["pos_x"] == 0):
             # 随机生成位置
             pos_x = random.uniform(0, 1920)
             pos_y = random.uniform(0, 1080)
-            cursor.execute("UPDATE devices SET pos_x = ?, pos_y = ? WHERE device_id = ?",
-                          (pos_x, pos_y, device_id))
-    
+            cursor.execute(
+                "UPDATE devices SET pos_x = ?, pos_y = ? WHERE device_id = ?",
+                (pos_x, pos_y, device_id),
+            )
+
     conn.commit()
     conn.close()
+
 
 def update_device_position(device_id, pos_x, pos_y):
     """更新设备位置"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE devices SET pos_x = ?, pos_y = ? WHERE device_id = ?",
-                  (pos_x, pos_y, device_id))
+    cursor.execute(
+        "UPDATE devices SET pos_x = ?, pos_y = ? WHERE device_id = ?",
+        (pos_x, pos_y, device_id),
+    )
     conn.commit()
     conn.close()
+
 
 def get_all_devices_with_positions():
     """获取所有设备及其位置"""
@@ -503,11 +535,13 @@ def get_all_devices_with_positions():
     conn.close()
     return [dict(row) for row in rows]
 
+
 def get_recent_alarms(limit=5):
     """获取最近报警事件（关联图片）"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT a.device_id, a.timestamp, a.alarm,
                (SELECT image_path FROM alarm_images ai
                 WHERE ai.device_id = a.device_id
@@ -516,46 +550,58 @@ def get_recent_alarms(limit=5):
         WHERE a.alarm = 1
         ORDER BY a.timestamp DESC
         LIMIT ?
-    """, (limit,))
+    """,
+        (limit,),
+    )
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
 
 def get_alarm_sessions(device_id, limit=20):
     """获取设备的报警会话记录，包含时长信息"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT id, device_id, start_time, end_time, duration_sec, status
         FROM alarm_sessions
         WHERE device_id = ?
         ORDER BY id DESC
         LIMIT ?
-    """, (device_id, limit))
+    """,
+        (device_id, limit),
+    )
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
 
 def get_active_alarm_session(device_id):
     """获取设备当前正在进行的报警会话"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT id, device_id, start_time, end_time, duration_sec, status
         FROM alarm_sessions
         WHERE device_id = ? AND status = 0
         ORDER BY id DESC
         LIMIT 1
-    """, (device_id,))
+    """,
+        (device_id,),
+    )
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
 
 def get_alarm_duration_stats(device_id):
     """获取报警时长统计：平均时长、最大时长、总时长"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT
             COUNT(*) as total_sessions,
             AVG(duration_sec) as avg_duration,
@@ -563,7 +609,9 @@ def get_alarm_duration_stats(device_id):
             SUM(duration_sec) as total_duration
         FROM alarm_sessions
         WHERE device_id = ? AND status = 1
-    """, (device_id,))
+    """,
+        (device_id,),
+    )
     row = cursor.fetchone()
     conn.close()
     if row:
@@ -571,70 +619,11 @@ def get_alarm_duration_stats(device_id):
             "total_sessions": row["total_sessions"] or 0,
             "avg_duration": round(row["avg_duration"], 2) if row["avg_duration"] else 0,
             "max_duration": row["max_duration"] or 0,
-            "total_duration": row["total_duration"] or 0
+            "total_duration": row["total_duration"] or 0,
         }
     return {
         "total_sessions": 0,
         "avg_duration": 0,
         "max_duration": 0,
-        "total_duration": 0
-    }
-
-def get_alarm_sessions(device_id, limit=20):
-    """获取设备的报警会话记录，包含时长信息"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, device_id, start_time, end_time, duration_sec, status
-        FROM alarm_sessions
-        WHERE device_id = ?
-        ORDER BY id DESC
-        LIMIT ?
-    """, (device_id, limit))
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
-
-def get_active_alarm_session(device_id):
-    """获取设备当前正在进行的报警会话"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, device_id, start_time, end_time, duration_sec, status
-        FROM alarm_sessions
-        WHERE device_id = ? AND status = 0
-        ORDER BY id DESC
-        LIMIT 1
-    """, (device_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-def get_alarm_duration_stats(device_id):
-    """获取报警时长统计：平均时长、最大时长、总时长"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT
-            COUNT(*) as total_sessions,
-            AVG(duration_sec) as avg_duration,
-            MAX(duration_sec) as max_duration,
-            SUM(duration_sec) as total_duration
-        FROM alarm_sessions
-        WHERE device_id = ? AND status = 1
-    """, (device_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return {
-            "total_sessions": row["total_sessions"] or 0,
-            "avg_duration": round(row["avg_duration"], 2) if row["avg_duration"] else 0,
-            "max_duration": row["max_duration"] or 0,
-            "total_duration": row["total_duration"] or 0
-        }
-    return {
-        "total_sessions": 0,
-        "avg_duration": 0,
-        "max_duration": 0,
-        "total_duration": 0
+        "total_duration": 0,
     }
