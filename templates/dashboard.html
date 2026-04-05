@@ -294,6 +294,7 @@
 
     const chart = echarts.init(document.getElementById('map-chart'));
 
+    // ====================== 新增：热力图配置 ======================
     const mapOption = {
       backgroundColor: '#ffffff',
       tooltip: {
@@ -303,6 +304,9 @@
         borderWidth: 1,
         textStyle: { color: '#1d1d1f', fontSize: 13 },
         formatter: function(params) {
+          if (params.seriesType === 'heatmap') {
+            return `报警热力值：${params.data[2]}`;
+          }
           return `<strong>${params.data.name}</strong><br/>状态: ${params.data.statusText}<br/>最后更新: ${params.data.lastSeen}`;
         }
       },
@@ -320,44 +324,80 @@
           opacity: 0.3
         }
       }],
-      series: [{
-        type: 'scatter',
-        symbolSize: 36,
-        data: []
-      }]
+      series: [
+        // 1. 设备点位（原有）
+        {
+          type: 'scatter',
+          symbolSize: 36,
+          data: [],
+          z: 10
+        },
+        // 2. 报警热力图（新增）
+        {
+          type: 'heatmap',
+          data: [],
+          blurSize: 50,       // 热力扩散大小
+          minOpacity: 0.1,    // 最小透明度
+          maxOpacity: 0.8,    // 最大透明度
+          z: 5,               // 层级在点位下方
+          // 热力图颜色梯度：绿→黄→红
+          color: [
+            '#00ff00',
+            '#ffff00',
+            '#ff0000'
+          ]
+        }
+      ]
     };
     chart.setOption(mapOption);
 
-    // 更新地图点位 / Update map points
+    // 更新地图点位 + 热力图 / Update map points + heatmap
     function updateMap(devices) {
-      const data = (devices || []).map(dev => {
+      const pointData = [];  // 散点数据
+      const heatData = [];   // 热力数据
+
+      (devices || []).forEach(dev => {
         let color = COLORS.offline;
         let statusText = '离线';
+        let heatValue = 0;   // 热力值：0=无，1=在线，2=报警
 
         if (dev.online_status === 1) {
+          heatValue = 1;
           if (dev.alarm_status === 1) {
             color = COLORS.alarm;
             statusText = '报警';
+            heatValue = 5;   // 报警赋予更高热力值
           } else {
             color = COLORS.normal;
             statusText = '正常';
           }
         }
 
-        return {
+        // 散点
+        pointData.push({
           name: dev.device_id,
           value: [dev.pos_x || 0, dev.pos_y || 0],
-          itemStyle: {
-            color: color,
-            borderColor: color,
-            borderWidth: 2
-          },
-          statusText: statusText,
+          itemStyle: { color, borderColor: color, borderWidth: 2 },
+          statusText,
           lastSeen: dev.last_seen || '-'
-        };
+        });
+
+        // 热力点：[x, y, value]
+        heatData.push([
+          dev.pos_x || 0,
+          dev.pos_y || 0,
+          heatValue
+        ]);
       });
 
-      chart.setOption({ series: [{ data: data }] });
+      // 同时更新散点 + 热力图
+      chart.setOption({
+        series: [
+          { data: pointData },
+          { data: heatData }
+        ]
+      });
+
       document.getElementById('map-meta').textContent = `最近刷新: ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
     }
 
