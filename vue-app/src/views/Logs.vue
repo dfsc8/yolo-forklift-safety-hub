@@ -1,12 +1,5 @@
 <template>
   <div class="logs-page">
-    <div class="aurora-bg">
-      <div class="blob blob-1"></div>
-      <div class="blob blob-2"></div>
-      <div class="blob blob-3"></div>
-      <div class="blob blob-4"></div>
-    </div>
-
     <div class="content">
       <header class="header glass">
         <div class="header-left">
@@ -14,10 +7,6 @@
             <h1>业务日志</h1>
             <div class="subtitle">Business Logs</div>
           </div>
-        </div>
-        <div class="nav-bar">
-          <router-link to="/" class="nav-btn">实时总览</router-link>
-          <router-link to="/devices" class="nav-btn">设备列表</router-link>
         </div>
       </header>
 
@@ -152,135 +141,31 @@ onMounted(() => {
 .logs-page {
   min-height: 100vh;
   position: relative;
-  overflow: hidden;
-  background: #eef0f8;
 }
 
-/* ===== 极光背景 ===== */
-.aurora-bg {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.blob {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.55;
-}
-
-.blob-1 {
-  width: 600px;
-  height: 600px;
-  top: -15%;
-  left: -10%;
-  background: radial-gradient(circle, rgba(30, 58, 138, 0.65), transparent 70%);
-  animation: move1 20s ease-in-out infinite;
-}
-
-.blob-2 {
-  width: 700px;
-  height: 700px;
-  top: 10%;
-  right: -15%;
-  background: radial-gradient(circle, rgba(88, 28, 135, 0.55), transparent 70%);
-  animation: move2 25s ease-in-out infinite;
-}
-
-.blob-3 {
-  width: 550px;
-  height: 550px;
-  bottom: -20%;
-  left: 15%;
-  background: radial-gradient(circle, rgba(37, 99, 235, 0.6), transparent 70%);
-  animation: move3 22s ease-in-out infinite;
-}
-
-.blob-4 {
-  width: 450px;
-  height: 450px;
-  top: 45%;
-  left: 45%;
-  background: radial-gradient(circle, rgba(126, 34, 206, 0.5), transparent 70%);
-  animation: move4 28s ease-in-out infinite;
-}
-
-.blob-2 {
-  width: 700px;
-  height: 700px;
-  top: 10%;
-  right: -15%;
-  background: radial-gradient(circle, rgba(88, 28, 135, 0.55), transparent 70%);
-  animation: move2 25s ease-in-out infinite;
-}
-
-.blob-3 {
-  width: 550px;
-  height: 550px;
-  bottom: -20%;
-  left: 15%;
-  background: radial-gradient(circle, rgba(37, 99, 235, 0.6), transparent 70%);
-  animation: move3 22s ease-in-out infinite;
-}
-
-.blob-4 {
-  width: 450px;
-  height: 450px;
-  top: 45%;
-  left: 45%;
-  background: radial-gradient(circle, rgba(126, 34, 206, 0.5), transparent 70%);
-  animation: move4 28s ease-in-out infinite;
-}
-
-@keyframes move1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(12%, 8%) scale(1.1); }
-  66% { transform: translate(-6%, 15%) scale(0.95); }
-}
-
-@keyframes move2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(-10%, 12%) scale(1.05); }
-  66% { transform: translate(8%, -8%) scale(0.9); }
-}
-
-@keyframes move3 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(15%, -10%) scale(1.08); }
-  66% { transform: translate(-12%, 5%) scale(1.02); }
-}
-
-@keyframes move4 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(-8%, -12%) scale(0.92); }
-  66% { transform: translate(10%, 6%) scale(1.12); }
-}
-
-/* ===== 内容区域 ===== */
 .content {
-  position: relative;
-  z-index: 1;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  animation: page-reveal 0.7s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
-/* ===== 毛玻璃通用样式 ===== */
+@keyframes page-reveal {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .glass {
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   box-shadow:
     0 8px 32px rgba(140, 120, 180, 0.10),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
-/* ===== Header ===== */
 .header {
   border-radius: 20px;
   padding: 20px 24px;
@@ -291,40 +176,21 @@ onMounted(() => {
 }
 
 .header-title h1 {
-  font-size: 20px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 22px;
   font-weight: 600;
   color: #3a3550;
+  letter-spacing: -0.01em;
 }
 
 .subtitle {
-  font-size: 13px;
+  font-size: 12px;
   color: #8a8aa8;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 2px;
 }
 
-.nav-bar {
-  display: flex;
-  gap: 8px;
-}
-
-.nav-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.35);
-  color: #3a3550;
-  text-decoration: none;
-  font-size: 13px;
-  transition: all .2s ease;
-}
-
-.nav-btn:hover {
-  background: rgba(255, 255, 255, 0.6);
-}
-
-/* ===== Card ===== */
 .card {
   border-radius: 24px;
   padding: 24px;
@@ -340,12 +206,12 @@ onMounted(() => {
 }
 
 .card-title {
+  font-family: 'Outfit', sans-serif;
   font-size: 15px;
   font-weight: 600;
   color: #3a3550;
 }
 
-/* ===== Filter ===== */
 .filter-bar {
   display: grid;
   grid-template-columns: 160px 160px 200px auto;
@@ -359,14 +225,16 @@ onMounted(() => {
   border-radius: 12px;
   padding: 0 12px;
   font-size: 13px;
-  background: rgba(255, 255, 255, 0.5);
+  font-family: 'DM Sans', sans-serif;
+  background: rgba(255, 255, 255, 0.3);
   color: #3a3550;
   outline: none;
-  transition: border-color .2s;
+  transition: border-color 0.2s, background 0.2s;
 }
 
 .filter-control:focus {
   border-color: rgba(139, 92, 246, 0.4);
+  background: rgba(255, 255, 255, 0.45);
 }
 
 .filter-action {
@@ -374,19 +242,20 @@ onMounted(() => {
   padding: 0 16px;
   border: 1px solid rgba(184, 169, 232, 0.2);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.25);
   color: #3a3550;
   font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
   cursor: pointer;
   justify-self: start;
-  transition: background .2s;
+  transition: background 0.2s, transform 0.15s ease;
 }
 
 .filter-action:hover {
-  background: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.4);
+  transform: translateY(-1px);
 }
 
-/* ===== Table ===== */
 .table-wrap {
   overflow-x: auto;
 }
@@ -399,14 +268,15 @@ onMounted(() => {
 
 .data-table th {
   text-align: left;
-  font-size: 12px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 11px;
   font-weight: 600;
   color: #8a8aa8;
   text-transform: uppercase;
-  letter-spacing: .5px;
+  letter-spacing: 0.06em;
   padding: 12px 16px;
   border-bottom: 1px solid rgba(184, 169, 232, 0.12);
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .data-table td {
@@ -417,21 +287,21 @@ onMounted(() => {
 }
 
 .data-table tbody tr {
-  transition: background-color .15s ease;
+  transition: background-color 0.2s ease;
 }
 
 .data-table tbody tr:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .device-id {
-  font-family: "SF Mono", Monaco, Consolas, monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
   font-weight: 500;
 }
 
 .time-col {
-  font-family: "SF Mono", Monaco, Consolas, monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
   color: #8a8aa8;
   white-space: nowrap;
@@ -443,8 +313,9 @@ onMounted(() => {
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
+  font-family: 'Outfit', sans-serif;
   text-transform: uppercase;
-  letter-spacing: .3px;
+  letter-spacing: 0.04em;
 }
 
 .level-badge.info {
@@ -468,7 +339,6 @@ onMounted(() => {
   color: #8a8aa8;
 }
 
-/* ===== Pagination ===== */
 .pagination {
   display: flex;
   align-items: center;
@@ -483,15 +353,17 @@ onMounted(() => {
   padding: 8px 18px;
   border: 1px solid rgba(184, 169, 232, 0.2);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.25);
   color: #3a3550;
   font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
   cursor: pointer;
-  transition: all .2s ease;
+  transition: all 0.2s ease;
 }
 
 .page-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.45);
+  transform: translateY(-1px);
 }
 
 .page-btn:disabled {
@@ -504,7 +376,6 @@ onMounted(() => {
   color: #8a8aa8;
 }
 
-/* ===== Responsive ===== */
 @media (max-width: 900px) {
   .filter-bar {
     grid-template-columns: 1fr;
