@@ -1,6 +1,11 @@
 # 缓存
 __pycache__/
 
+# Vite 缓存
+vue-app/.vite/
+vue-app/node_modules/
+vue-app/dist/
+
 # 数据库
 *.db
 
