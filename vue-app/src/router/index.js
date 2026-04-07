@@ -24,7 +24,8 @@ const routes = [
     path: '/trend',
     name: 'Trend',
     component: Trend
-  }
+  },
+  { path: '/history', name: 'History', component: () => import('../views/History.vue') } // 新增
 ]
 
 const router = createRouter({
