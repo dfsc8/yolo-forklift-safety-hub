@@ -6,7 +6,6 @@ import os
 import re
 import sys
 import time
-import random
 import json
 from datetime import datetime, timedelta
 from flask import (
@@ -892,43 +891,25 @@ def get_device_alarm_sessions(device_id):
 
 @app.route('/api/trend')
 def trend():
-    import random
-    from flask import request, jsonify
-
     auth_failed = require_auth()
     if auth_failed:
         return auth_failed
 
     t = request.args.get('type', 'day')
+    device_ids = ["FORK-001", "FORK-002", "FORK-003"]
 
-    # ===== 时间轴 =====
-    if t == 'day':
-        labels = [f"{i}:00" for i in range(24)]
-    elif t == 'week':
-        labels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
-    else:
-        labels = [str(i+1) for i in range(30)]
+    trend_data = db.get_alarm_trend_multi_device(t, device_ids)
+    labels = trend_data.get("labels", []) or []
+    series = trend_data.get("series", {}) or {}
 
-    # ===== 模拟 publish_test 的报警逻辑 =====
-    def gen():
-        state = 0
-        data = []
-        for _ in labels:
-            if state == 1:
-                state = 1 if random.random() < 0.7 else 0
-            else:
-                state = 1 if random.random() < 0.15 else 0
-
-            val = random.randint(1, 3) if state == 1 else random.randint(0, 1)
-            data.append(val)
-        return data
-
-    return jsonify({
-        "labels": labels,
-        "fork1": gen(),
-        "fork2": gen(),
-        "fork3": gen()
-    })
+    return jsonify(
+        {
+            "labels": labels,
+            "fork1": series.get(device_ids[0], []),
+            "fork2": series.get(device_ids[1], []),
+            "fork3": series.get(device_ids[2], []),
+        }
+    )
 
 
 if __name__ == "__main__":

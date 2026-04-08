@@ -494,6 +494,118 @@ def get_alarm_hourly_today_yesterday():
     }
 
 
+def get_alarm_trend_multi_device(range_type, device_ids):
+    """
+    多设备趋势聚合（alarm=1 次数）：
+    - day: 当天 0-23 点
+    - week: 最近 7 天（含今天）
+    - month: 最近 30 天（含今天）
+
+    返回：
+      {
+        "labels": [...],
+        "series": { "<device_id>": [..counts..], ... }
+      }
+    """
+    if not device_ids:
+        return {"labels": [], "series": {}}
+
+    range_type = (range_type or "day").lower()
+    if range_type not in ("day", "week", "month"):
+        range_type = "day"
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    placeholders = ",".join(["?"] * len(device_ids))
+    series = {device_id: [] for device_id in device_ids}
+
+    if range_type == "day":
+        labels = [f"{h}:00" for h in range(24)]
+        for device_id in device_ids:
+            series[device_id] = [0 for _ in range(24)]
+
+        cursor.execute(
+            f"""
+            SELECT
+                device_id,
+                strftime('%H', timestamp) AS hour,
+                COUNT(*) AS alarm_count
+            FROM alarms
+            WHERE alarm = 1
+              AND device_id IN ({placeholders})
+              AND date(timestamp) = date('now', 'localtime')
+            GROUP BY device_id, hour
+            ORDER BY device_id, hour ASC
+        """,
+            tuple(device_ids),
+        )
+        rows = cursor.fetchall()
+        for row in rows:
+            device_id = row["device_id"]
+            if device_id not in series:
+                continue
+            try:
+                hour_idx = int(row["hour"])
+            except (TypeError, ValueError):
+                continue
+            if 0 <= hour_idx <= 23:
+                series[device_id][hour_idx] = int(row["alarm_count"] or 0)
+
+        conn.close()
+        return {"labels": labels, "series": series}
+
+    if range_type == "week":
+        days = 7
+    else:
+        days = 30
+
+    # 最近 N 天（含今天）
+    end_date = datetime.now().date()
+    start_date = end_date - timedelta(days=days - 1)
+    date_keys = [
+        (start_date + timedelta(days=offset)).strftime("%Y-%m-%d")
+        for offset in range(days)
+    ]
+    labels = [
+        (start_date + timedelta(days=offset)).strftime("%m-%d") for offset in range(days)
+    ]
+
+    for device_id in device_ids:
+        series[device_id] = [0 for _ in range(days)]
+
+    cursor.execute(
+        f"""
+        SELECT
+            device_id,
+            date(timestamp) AS day,
+            COUNT(*) AS alarm_count
+        FROM alarms
+        WHERE alarm = 1
+          AND device_id IN ({placeholders})
+          AND date(timestamp) >= ?
+        GROUP BY device_id, day
+        ORDER BY device_id, day ASC
+    """,
+        tuple(device_ids) + (start_date.strftime("%Y-%m-%d"),),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    index_by_day = {d: i for i, d in enumerate(date_keys)}
+    for row in rows:
+        device_id = row["device_id"]
+        if device_id not in series:
+            continue
+        day = row["day"]
+        idx = index_by_day.get(day)
+        if idx is None:
+            continue
+        series[device_id][idx] = int(row["alarm_count"] or 0)
+
+    return {"labels": labels, "series": series}
+
+
 def save_alarm_image(device_id, image_path, timestamp):
     """保存报警图片记录到数据库"""
     conn = get_db_connection()
