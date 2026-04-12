@@ -45,7 +45,7 @@
 const menuItems = [
   {
     path: '/',
-    label: '仪表盘',
+    label: '实时总览',
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <rect x="3" y="3" width="7" height="7" rx="1"/>
       <rect x="14" y="3" width="7" height="7" rx="1"/>
@@ -54,8 +54,25 @@ const menuItems = [
     </svg>`
   },
   {
+    path: '/trend',   // ✅ 新增（就这一块）
+    label: '趋势分析',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="3 17 9 11 13 15 21 7"/>
+      <polyline points="14 7 21 7 21 14"/>
+    </svg>`
+  },
+  {
+    path: '/history',
+    label: '事件追溯',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12h18"/>
+      <path d="M3 6h18"/>
+      <path d="M3 18h18"/>
+    </svg>`
+  },
+  {
     path: '/devices',
-    label: '设备列表',
+    label: '设备管理',
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <rect x="2" y="6" width="20" height="12" rx="2"/>
       <path d="M6 12h4m4 0h4"/>
@@ -69,23 +86,6 @@ const menuItems = [
       <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
       <path d="M14 2v6h6"/>
       <path d="M8 13h8m-8 4h4"/>
-    </svg>`
-  },
-    {
-    path: '/trend',   // ✅ 新增（就这一块）
-    label: '趋势分析',
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="3 17 9 11 13 15 21 7"/>
-      <polyline points="14 7 21 7 21 14"/>
-    </svg>`
-  },
-   {
-    path: '/history',
-    label: '报警历史',
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M3 12h18"/>
-      <path d="M3 6h18"/>
-      <path d="M3 18h18"/>
     </svg>`
   }
 ]
