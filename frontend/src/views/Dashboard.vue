@@ -24,7 +24,14 @@
                 <h3 class="card-title">工厂平面图</h3>
                 <span class="card-meta">{{ mapMeta }}</span>
               </div>
-              <div ref="mapChart" class="map-container"></div>
+              <div class="map-stage">
+                <img
+                  :src="DASHBOARD_MAP_URL"
+                  alt="工厂平面图"
+                  class="map-background-image"
+                />
+                <div ref="mapChart" class="map-container"></div>
+              </div>
               <div class="map-legend">
                 <span class="legend-item"><span class="legend-dot normal"></span>正常</span>
                 <span class="legend-item"><span class="legend-dot alarm"></span>报警</span>
@@ -69,7 +76,7 @@
               </div>
               <div class="alarm-item-body">
                 <span class="alarm-zone" v-if="alarm.zone">{{ alarm.zone }}</span>
-                <img v-if="alarm.image_path" :src="'/images/' + alarm.image_path" class="alarm-thumb" alt="报警图片" @error="handleImageError" />
+                <img v-if="alarm.image_path" :src="'/' + alarm.image_path" class="alarm-thumb" alt="报警图片" @error="handleImageError" />
                 <span v-if="!alarm.image_path" class="alarm-no-image">无图片</span>
                 <span class="alarm-duration">{{ getAlarmDuration(alarm) }}</span>
               </div>
@@ -94,7 +101,7 @@
           <button @click="showImageModal = false" class="modal-close" aria-label="关闭">&times;</button>
         </div>
         <div class="modal-body image-modal-body">
-          <img v-if="selectedAlarm?.image_path" :src="'/images/' + selectedAlarm.image_path" class="alarm-full-image" alt="告警图片" />
+          <img v-if="selectedAlarm?.image_path" :src="'/' + selectedAlarm.image_path" class="alarm-full-image" alt="告警图片" />
           <div v-else class="no-image">暂无图片</div>
           <div class="alarm-detail-panel" v-if="selectedAlarm">
             <div class="alarm-detail-row">
@@ -123,7 +130,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { io } from 'socket.io-client'
 import api from '../lib/api'
@@ -144,8 +151,14 @@ const chartSeries = ref([])
 
 const showImageModal = ref(false)
 const selectedAlarm = ref(null)
+const DASHBOARD_MAP_URL = '/Dashboard.png'
 
 let mapChartInstance = null
+const MAP_COORD_WIDTH = 1920
+const MAP_COORD_HEIGHT = 1080
+const MAP_MARKER_OUTER_SIZE = 42
+const MAP_MARKER_MIDDLE_SIZE = 32
+const MAP_MARKER_INNER_SIZE = 22
 
 const C = {
   text: '#5c5678',
@@ -188,10 +201,8 @@ async function fetchAlarmTrend() {
   }
 }
 
-function updateMap() {
-  if (!mapChartInstance) return
-
-  const data = devices.value.map(dev => {
+function buildMapPointData() {
+  return devices.value.map(dev => {
     let color = C.offline
     let statusText = '离线'
     if (dev.online_status === 1) {
@@ -211,10 +222,62 @@ function updateMap() {
       lastSeen: dev.last_seen || '-',
     }
   })
+}
 
-  mapChartInstance.setOption({ series: [{ data }] })
+function updateMap() {
+  if (!mapChartInstance) return
+  updateMapLayout()
+
+  const pointData = buildMapPointData()
+
+  mapChartInstance.setOption({
+    series: [
+      { data: pointData },
+      { data: pointData },
+      { data: pointData },
+    ],
+  })
+
   const now = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   mapMeta.value = `最近更新 ${now}`
+}
+
+function updateMapLayout() {
+  if (!mapChartInstance) return
+
+  const chartWidth = mapChartInstance.getWidth()
+  const chartHeight = mapChartInstance.getHeight()
+  if (!chartWidth || !chartHeight) return
+
+  const scale = Math.min(
+    chartWidth / MAP_COORD_WIDTH,
+    chartHeight / MAP_COORD_HEIGHT
+  )
+  const fittedWidth = Math.round(MAP_COORD_WIDTH * scale)
+  const fittedHeight = Math.round(MAP_COORD_HEIGHT * scale)
+  const offsetLeft = Math.round((chartWidth - fittedWidth) / 2)
+  const offsetTop = Math.round((chartHeight - fittedHeight) / 2)
+
+  mapChartInstance.setOption({
+    grid: {
+      left: offsetLeft,
+      top: offsetTop,
+      width: fittedWidth,
+      height: fittedHeight,
+      containLabel: false,
+    },
+    xAxis: {
+      min: 0,
+      max: MAP_COORD_WIDTH,
+      show: false,
+    },
+    yAxis: {
+      min: 0,
+      max: MAP_COORD_HEIGHT,
+      inverse: true,
+      show: false,
+    },
+  })
 }
 
 async function initData() {
@@ -313,6 +376,13 @@ onMounted(() => {
   mapChartInstance = echarts.init(mapChart.value)
   mapChartInstance.setOption({
     backgroundColor: 'transparent',
+    grid: {
+      left: 0,
+      top: 0,
+      width: '100%',
+      height: '100%',
+      containLabel: false,
+    },
     tooltip: {
       trigger: 'item',
       backgroundColor: 'rgba(255,255,255,0.85)',
@@ -321,25 +391,57 @@ onMounted(() => {
       textStyle: { color: C.text, fontSize: 12 },
       formatter: p => `<strong>${p.data.name}</strong><br/>状态: ${p.data.statusText}<br/>最后更新: ${p.data.lastSeen}`,
     },
-    xAxis: { min: 0, max: 1920, show: false },
-    yAxis: { min: 0, max: 1080, inverse: true, show: false },
-    graphic: [{
-      type: 'image',
-      id: 'background',
-      left: 0,
-      top: 0,
-      style: {
-        image: '/Dashboard.png',
-        width: 1920,
-        height: 1080,
-        opacity: 0.45,
-      },
-    }],
+    xAxis: {
+      type: 'value',
+      min: 0,
+      max: MAP_COORD_WIDTH,
+      show: false,
+    },
+    yAxis: {
+      type: 'value',
+      min: 0,
+      max: MAP_COORD_HEIGHT,
+      inverse: true,
+      show: false,
+    },
     series: [{
       type: 'scatter',
-      symbolSize: 32,
+      coordinateSystem: 'cartesian2d',
+      clip: true,
+      silent: true,
+      z: 1,
+      symbolSize: MAP_MARKER_OUTER_SIZE,
+      itemStyle: {
+        color: '#111111',
+        opacity: 0.96,
+      },
+      data: [],
+    }, {
+      type: 'scatter',
+      coordinateSystem: 'cartesian2d',
+      clip: true,
+      silent: true,
+      z: 2,
+      symbolSize: MAP_MARKER_MIDDLE_SIZE,
+      itemStyle: {
+        color: 'rgba(255, 255, 255, 0.96)',
+      },
+      data: [],
+    }, {
+      type: 'scatter',
+      coordinateSystem: 'cartesian2d',
+      clip: true,
+      z: 3,
+      symbolSize: MAP_MARKER_INNER_SIZE,
       data: [],
     }],
+  })
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      mapChartInstance?.resize()
+      updateMapLayout()
+      updateMap()
+    })
   })
 
   fetchAlarmTrend()
@@ -361,6 +463,7 @@ onMounted(() => {
 
   const resizeHandler = () => {
     mapChartInstance?.resize()
+    updateMapLayout()
   }
   window.addEventListener('resize', resizeHandler)
 
@@ -556,13 +659,34 @@ onMounted(() => {
   50% { opacity: 0.8; transform: scale(1.03); }
 }
 
-.map-container {
+.map-stage {
+  position: relative;
   width: 100%;
   height: 420px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.1)),
+    rgba(255, 255, 255, 0.08);
   box-shadow: inset 0 2px 8px rgba(140, 120, 180, 0.06);
   overflow: hidden;
+}
+
+.map-background-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+.map-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .map-legend {
@@ -991,7 +1115,7 @@ onMounted(() => {
     flex-direction: column;
   }
 
-  .map-container {
+  .map-stage {
     height: 280px;
   }
 
