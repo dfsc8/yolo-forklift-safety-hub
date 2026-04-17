@@ -100,8 +100,27 @@ async def api_recent_alarms(limit: int = Query(10, ge=1, le=200)):
 
 
 @router.get("/api/history")
-async def api_history(limit: int = Query(50, ge=1, le=500)):
-    return JSONResponse(app_service.get_history_payload(limit))
+async def api_history(
+    limit: int | None = Query(None, ge=1, le=500),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    device_id: str | None = None,
+    zone: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+):
+    if limit is not None and page == 1 and page_size == 20:
+        page_size = limit
+    return JSONResponse(
+        app_service.get_history_payload(
+            page=page,
+            page_size=page_size,
+            device_id=device_id,
+            zone=zone,
+            start_time=start_time,
+            end_time=end_time,
+        )
+    )
 
 
 @router.get("/api/dashboard/alarm-trend")

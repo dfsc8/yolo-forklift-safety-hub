@@ -148,6 +148,30 @@ def init_db():
         ON alarm_images(device_id, image_path)
         """
     )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_alarms_timestamp
+        ON alarms(timestamp DESC)
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_alarms_device_timestamp
+        ON alarms(device_id, timestamp DESC)
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_alarm_images_device_timestamp
+        ON alarm_images(device_id, timestamp DESC)
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_devices_position
+        ON devices(device_id, pos_x, pos_y)
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -682,6 +706,85 @@ def get_recent_alarms(limit=5):
     rows = cursor.fetchall()
     conn.close()
     return _rows_to_dicts(rows)
+
+
+def query_alarm_history(page=1, page_size=20, device_id=None, zone=None, start_time=None, end_time=None):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    zone_expr = (
+        "CASE "
+        "WHEN COALESCE(d.pos_x, 0) < 600 THEN CASE WHEN COALESCE(d.pos_y, 0) < 500 THEN 'A区' ELSE 'C区' END "
+        "ELSE CASE WHEN COALESCE(d.pos_y, 0) < 500 THEN 'B区' ELSE 'D区' END "
+        "END"
+    )
+    where_clauses = ["a.alarm = 1"]
+    params = []
+
+    if device_id:
+        where_clauses.append("a.device_id = ?")
+        params.append(device_id)
+    if start_time:
+        where_clauses.append("a.timestamp >= ?")
+        params.append(start_time)
+    if end_time:
+        where_clauses.append("a.timestamp <= ?")
+        params.append(end_time)
+    if zone:
+        where_clauses.append(f"{zone_expr} = ?")
+        params.append(zone)
+
+    where_sql = " AND ".join(where_clauses)
+    from_sql = f"""
+        FROM alarms a
+        LEFT JOIN devices d ON d.device_id = a.device_id
+        WHERE {where_sql}
+    """
+
+    cursor.execute(f"SELECT COUNT(*) AS total {from_sql}", tuple(params))
+    total = int(cursor.fetchone()["total"] or 0)
+
+    offset = max(page - 1, 0) * page_size
+    cursor.execute(
+        f"""
+        SELECT
+            a.id,
+            a.device_id,
+            a.timestamp,
+            a.alarm,
+            {zone_expr} AS zone,
+            (
+                SELECT ai.image_path
+                FROM alarm_images ai
+                WHERE ai.device_id = a.device_id
+                  AND ai.timestamp = a.timestamp
+                ORDER BY ai.id DESC
+                LIMIT 1
+            ) AS image_path,
+            (
+                SELECT ai.description
+                FROM alarm_images ai
+                WHERE ai.device_id = a.device_id
+                  AND ai.timestamp = a.timestamp
+                ORDER BY ai.id DESC
+                LIMIT 1
+            ) AS image_description,
+            (
+                SELECT ai.description_status
+                FROM alarm_images ai
+                WHERE ai.device_id = a.device_id
+                  AND ai.timestamp = a.timestamp
+                ORDER BY ai.id DESC
+                LIMIT 1
+            ) AS image_description_status
+        {from_sql}
+        ORDER BY a.timestamp DESC, a.id DESC
+        LIMIT ? OFFSET ?
+        """,
+        tuple(params) + (page_size, offset),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return {"items": _rows_to_dicts(rows), "total": total}
 
 
 def get_alarm_sessions(device_id, limit=20):
