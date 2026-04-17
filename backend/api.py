@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from backend.paths import FRONTEND_ASSETS_DIR, FRONTEND_DIST_DIR, FRONTEND_PUBLIC_DIR, ROOT_DIR, STATIC_DIR
 from backend.services import app_service
@@ -17,7 +17,18 @@ SPA_ROUTES = ["/", "/devices", "/logs", "/history", "/trend"]
 def _index_response():
     index_file = FRONTEND_DIST_DIR / "index.html"
     if not index_file.is_file():
-        raise HTTPException(status_code=404, detail="Frontend build not found")
+        return PlainTextResponse(
+            (
+                "Frontend build not found.\n"
+                "Please build the frontend first:\n"
+                "cd frontend\n"
+                "npm install\n"
+                "npm run build\n"
+                "cd ..\n"
+                "Then restart the backend."
+            ),
+            status_code=503,
+        )
     return FileResponse(index_file)
 
 
