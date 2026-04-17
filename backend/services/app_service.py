@@ -16,6 +16,7 @@ from backend.paths import ALARMS_IMAGE_DIR, ROOT_DIR
 from backend.repositories import database as repo
 
 DEVICE_IDS = ["FORK-001", "FORK-002", "FORK-003"]
+ZONE_OPTIONS = ["A区", "B区", "C区", "D区"]
 
 
 def sanitize_device_id(device_id: str) -> str:
@@ -34,6 +35,10 @@ def allowed_image_file(filename: str) -> bool:
 def decorate_alarm_records(alarms, devices=None):
     devices = devices or {d["device_id"]: d for d in repo.get_all_devices_with_positions()}
     for alarm in alarms:
+        if alarm.get("zone"):
+            alarm["description"] = alarm.pop("image_description", None)
+            alarm["description_status"] = alarm.pop("image_description_status", None)
+            continue
         device = devices.get(alarm["device_id"], {})
         pos_x = device.get("pos_x", 0) or 0
         pos_y = device.get("pos_y", 0) or 0
@@ -97,10 +102,75 @@ def get_recent_alarms_payload(limit: int):
     return {"alarms": decorate_alarm_records(alarms, devices)}
 
 
-def get_history_payload(limit: int):
-    alarms = repo.get_recent_alarms(limit=limit)
-    devices = {d["device_id"]: d for d in repo.get_all_devices_with_positions()}
-    return {"items": decorate_alarm_records(alarms, devices)}
+def _parse_history_time(raw_value: str | None, is_end: bool = False) -> str | None:
+    if not raw_value:
+        return None
+    raw_value = raw_value.strip()
+    formats = [
+        ("%Y-%m-%d %H:%M:%S", False),
+        ("%Y-%m-%dT%H:%M:%S", False),
+        ("%Y-%m-%d %H:%M", True),
+        ("%Y-%m-%dT%H:%M", True),
+        ("%Y-%m-%d", True),
+    ]
+    for fmt, needs_padding in formats:
+        try:
+            dt = datetime.strptime(raw_value, fmt)
+            if needs_padding:
+                if "%H:%M" in fmt:
+                    dt = dt.replace(second=59 if is_end else 0)
+                else:
+                    dt = dt.replace(hour=23 if is_end else 0, minute=59 if is_end else 0, second=59 if is_end else 0)
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+    raise HTTPException(status_code=400, detail="时间格式错误，请使用 YYYY-MM-DD HH:MM[:SS]")
+
+
+def get_history_payload(
+    page: int = 1,
+    page_size: int = 20,
+    device_id: str | None = None,
+    zone: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+):
+    if zone and zone not in ZONE_OPTIONS:
+        raise HTTPException(status_code=400, detail="无效的zone")
+    start_time = _parse_history_time(start_time, is_end=False)
+    end_time = _parse_history_time(end_time, is_end=True)
+    if start_time and end_time and start_time > end_time:
+        raise HTTPException(status_code=400, detail="开始时间不能晚于结束时间")
+
+    query_result = repo.query_alarm_history(
+        page=page,
+        page_size=page_size,
+        device_id=device_id,
+        zone=zone,
+        start_time=start_time,
+        end_time=end_time,
+    )
+    items = decorate_alarm_records(query_result["items"])
+    total = query_result["total"]
+    total_pages = max((total + page_size - 1) // page_size, 1) if total else 0
+    device_options = [item["device_id"] for item in repo.get_all_devices_with_positions()]
+    return {
+        "items": items,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "filters": {
+            "device_id": device_id or "",
+            "zone": zone or "",
+            "start_time": start_time or "",
+            "end_time": end_time or "",
+        },
+        "options": {
+            "device_ids": device_options,
+            "zones": ZONE_OPTIONS,
+        },
+    }
 
 
 def get_dashboard_alarm_trend_payload():
