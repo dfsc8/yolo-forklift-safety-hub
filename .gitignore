@@ -8,9 +8,9 @@ __pycache__/
 uv.lock
 
 # Vite 缓存
-vue-app/.vite/
-vue-app/node_modules/
-vue-app/dist/
+frontend/.vite/
+frontend/node_modules/
+frontend/dist/
 
 # 数据库
 *.db

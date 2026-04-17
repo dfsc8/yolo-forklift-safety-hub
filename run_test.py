@@ -168,6 +168,20 @@ def ensure_demo_assets() -> tuple[str, str]:
     )
 
 
+def ensure_frontend_build() -> None:
+    index_file = ROOT / "frontend" / "dist" / "index.html"
+    if index_file.exists():
+        return
+    raise FileNotFoundError(
+        "缺少前端构建产物：frontend/dist/index.html\n"
+        "请先执行：\n"
+        "  cd frontend\n"
+        "  npm install\n"
+        "  npm run build\n"
+        "  cd .."
+    )
+
+
 def rebuild_demo_database() -> None:
     image_primary, image_secondary = ensure_demo_assets()
     remove_database_files()
@@ -424,6 +438,7 @@ def main() -> int:
     runner = ProcessRunner()
     heartbeat_keeper = DemoHeartbeatKeeper(["FORK-001", "FORK-002"])
     try:
+        ensure_frontend_build()
         backup = backup_database()
         rebuild_demo_database()
 
